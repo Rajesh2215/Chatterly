@@ -1,0 +1,36 @@
+services:
+
+  mongodb:
+    image: mongo:7
+    container_name: chatterly-db
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: |
+        test $$(mongosh --port 27017 --quiet --eval "try { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok } catch(e) { rs.status().ok }") -eq 1
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 2s
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatterly-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mongo_data:
+  redis_data:
