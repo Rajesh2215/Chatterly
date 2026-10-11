@@ -12,6 +12,8 @@ interface ConversationListProps {
   theme: ThemeMode;
   onToggleTheme: () => void;
   onNewChat?: () => void;
+  onSwitchUser?: () => void;
+  isLoading?: boolean;
 }
 
 export const ConversationList: React.FC<ConversationListProps> = ({
@@ -22,6 +24,8 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   theme,
   onToggleTheme,
   onNewChat,
+  onSwitchUser,
+  isLoading = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -44,7 +48,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           <div className="brand-logo-icon">⚡</div>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <span className="brand-title">Chatterly</span>
-            <span className="brand-version">PRO</span>
+            <span className="brand-version">API LIVE</span>
           </div>
         </div>
 
@@ -67,9 +71,9 @@ export const ConversationList: React.FC<ConversationListProps> = ({
         </div>
       </div>
 
-      {/* User Profile Mini Strip */}
+      {/* User Profile Mini Strip with Switch User Button */}
       <div className="sidebar-user-strip">
-        <div className="user-profile-summary" title={`${currentUser.displayName} • ${currentUser.status}`}>
+        <div className="user-profile-summary" title={`${currentUser.displayName} (${currentUser.name})`}>
           <div className="avatar-container">
             {currentUser.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -87,9 +91,20 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           </div>
           <div>
             <div className="user-name-text">{currentUser.displayName}</div>
-            <div className="user-status-text">{currentUser.customStatus || 'Active'}</div>
+            <div className="user-status-text">Logged in as @{currentUser.name}</div>
           </div>
         </div>
+
+        {onSwitchUser && (
+          <button
+            type="button"
+            className="user-switch-btn"
+            onClick={onSwitchUser}
+            title="Switch active user"
+          >
+            ⇄ Switch User
+          </button>
+        )}
       </div>
 
       {/* Search Bar Input */}
@@ -104,7 +119,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           <input
             type="text"
             className="search-input"
-            placeholder="Search messages or peers..."
+            placeholder="Search conversations..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             aria-label="Search conversations"
@@ -124,11 +139,16 @@ export const ConversationList: React.FC<ConversationListProps> = ({
 
       {/* Inset Conversation Cards List */}
       <div className="conversation-list-container">
-        {filteredConversations.length === 0 ? (
+        {isLoading ? (
           <div className="empty-conversations-state">
-            <span style={{ fontSize: '26px' }}>🔍</span>
+            <span className="spinner" style={{ width: '22px', height: '22px', marginBottom: '8px' }} />
+            <span style={{ fontSize: '13px' }}>Loading conversations from API...</span>
+          </div>
+        ) : filteredConversations.length === 0 ? (
+          <div className="empty-conversations-state">
+            <span style={{ fontSize: '26px' }}>📭</span>
             <p style={{ margin: 0, fontWeight: 600 }}>No conversations found</p>
-            <span style={{ fontSize: '12px' }}>Try searching with a different term</span>
+            <span style={{ fontSize: '12px' }}>Inbox is clear</span>
           </div>
         ) : (
           filteredConversations.map((conv) => {
@@ -173,7 +193,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   <div className="conversation-card-body">
                     <span className="last-message-snippet">
                       {conv.lastMessage?.senderId === currentUser.id && (
-                        <span style={{ marginRight: '5px', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                        <span style={{ marginRight: '5px', color: 'var(--text-primary)', fontWeight: 600 }}>
                           You:
                         </span>
                       )}

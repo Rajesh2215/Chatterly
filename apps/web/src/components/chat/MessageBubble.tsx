@@ -11,6 +11,7 @@ interface MessageBubbleProps {
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isSelf }) => {
   const renderDeliveryTick = (status: MessageStatus) => {
     switch (status) {
+      case 'pending':
       case 'sending':
         return <span className="delivery-tick sending" title="Sending...">🕒</span>;
       case 'sent':
