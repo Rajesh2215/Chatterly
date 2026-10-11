@@ -36,14 +36,13 @@ export async function getOrCreateDirect(req: Request, res: Response): Promise<vo
 
 export async function sendMessage(req: Request, res: Response): Promise<void> {
   try {
+    const conversationId = req.params.id as string;
+    const { senderId, content } = req.body;
 
-    const { id: conversationId } = req.params
-    const { senderId, content } = req.body
-
-    if (!senderId || !content) {
+    if (!conversationId || !senderId || !content) {
       res.status(400).json({
         success: false,
-        error: 'Both senderId and content are required',
+        error: 'conversationId, senderId, and content are required',
       });
       return;
     }
@@ -53,7 +52,6 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
       success: true,
       data: response,
     });
-
   } catch (error: any) {
     const message = error.message || 'Internal Server Error';
     const status = message.includes('not found')
@@ -64,6 +62,37 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
     res.status(status).json({
       success: false,
       error: message,
+    });
+  }
+}
+
+export async function getMessages(req: Request, res: Response): Promise<void> {
+  try {
+    const conversationId = req.params.id as string;
+    const { cursor, limit } = req.query;
+
+    if (!conversationId) {
+      res.status(400).json({
+        success: false,
+        error: 'Conversation ID is required',
+      });
+      return;
+    }
+
+    const result = await conversationService.getMessages({
+      conversationId,
+      cursor: cursor as string | undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+    });
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error',
     });
   }
 }

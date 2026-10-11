@@ -92,6 +92,40 @@ export class ConversationService {
 
     return message
   }
+
+  async getMessages(params: {
+    conversationId: string;
+    cursor?: string;
+    limit?: number;
+  }) {
+
+    const { conversationId, cursor } = params;
+    const limit = Math.min(Math.max(params.limit || 20, 1), 50); // Default 20, max 50
+
+    // Build the query:
+    const query: any = { conversationId };
+    if (cursor) {
+      query._id = { $lt: cursor }; // ULIDs older than the cursor
+    }
+
+    // Fetch limit + 1 to check if there are more older messages
+    const messages = await Message.find(query).sort({ _id: -1 }).limit(limit + 1).lean()
+    const hasMore = messages.length > limit;
+    if (hasMore) {
+      messages.pop(); // Remove the extra (+1) message used for the hasMore check
+    }
+
+    // The oldest message in this batch becomes the nextCursor for scrolling up
+    const nextCursor = hasMore && messages.length > 0 ? messages[messages.length - 1]._id : null;
+
+    // Reverse so messages are in natural top-to-bottom chronological reading order for the client
+    messages.reverse();
+    return {
+      messages,
+      nextCursor,
+      hasMore,
+    };
+  }
 }
 
 export const conversationService = new ConversationService();
