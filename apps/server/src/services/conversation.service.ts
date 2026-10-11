@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Conversation, IConversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
+import { IMessage, Message } from '../models/Message.js';
 
 export interface DirectConversationResult {
   conversation: IConversation;
@@ -50,6 +51,46 @@ export class ConversationService {
       conversation: conversation!,
       isNew,
     };
+  }
+
+  async sendMessage(
+    conversationId: string,
+    senderId: string,
+    content: string,
+  ): Promise<IMessage> {
+
+    if (!content || !content.trim()) {
+      throw new Error('Message content cannot be empty');
+    }
+
+    const conversation = await Conversation.findById(conversationId)
+
+    if (!conversation) {
+      throw new Error('Conversation not found');
+    }
+
+    const isParticipant = conversation.participants.some((p) => p.toString() === senderId)
+    if (!isParticipant) {
+      throw new Error('Sender is not a participant in this conversation');
+    }
+
+    const message = await Message.create({
+      conversationId,
+      senderId: new Types.ObjectId(senderId),
+      content: content.trim(),
+      deliveryStatus: "sent"
+    })
+
+    conversation.lastMessage = {
+      id: message._id,
+      senderId: new Types.ObjectId(senderId),
+      content: content.trim(),
+      createdAt: message.createdAt
+    }
+
+    await conversation.save()
+
+    return message
   }
 }
 
