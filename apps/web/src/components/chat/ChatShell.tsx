@@ -2,7 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiConversation, Conversation, CURRENT_USER, Message, ThemeMode, UserProfile } from '@/types/chat';
-import { api } from '@/lib/api';
+import {
+  getConversations,
+  getConversationMessages,
+  sendMessage,
+} from '@/api';
 import {
   formatConversationTime,
   formatMessageTime,
@@ -65,7 +69,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     async (conversationId: string) => {
       try {
         setIsLoadingMessages(true);
-        const result = await api.getConversationMessages(conversationId, { limit: 20 });
+        const result = await getConversationMessages(conversationId, { limit: 20 });
         const uiMessages = result.messages.map(transformApiMessageToUi);
 
         setConversations((prev) =>
@@ -96,7 +100,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
       try {
         setIsLoadingConversations(true);
         setApiError(null);
-        const apiConvs: ApiConversation[] = await api.getConversations(userId);
+        const apiConvs: ApiConversation[] = await getConversations(userId);
 
         // Discover user profile & other available participants from DB data
         const discoveredPeers: Map<string, { id: string; displayName: string; name: string }> = new Map();
@@ -243,7 +247,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
       // 3. Fire POST /api/conversations/:id/messages
       try {
-        const confirmedApiMsg = await api.sendMessage(activeConversationId, {
+        const confirmedApiMsg = await sendMessage(activeConversationId, {
           senderId: currentUser.id,
           content: text,
         });
@@ -305,7 +309,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
     try {
       setIsLoadingOlder(true);
-      const result = await api.getConversationMessages(activeConversationId, {
+      const result = await getConversationMessages(activeConversationId, {
         cursor: activeConv.nextCursor,
         limit: 20,
       });
