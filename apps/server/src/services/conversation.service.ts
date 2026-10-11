@@ -126,6 +126,23 @@ export class ConversationService {
       hasMore,
     };
   }
+
+  async getUserConversations(userId: string): Promise<IConversation[]> {
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+
+    const conversations = await Conversation.find({
+      participants: new Types.ObjectId(userId),
+    })
+      .sort({ updatedAt: -1 }) // Most recently active conversation at the top
+      .populate('participants', 'username displayName avatarUrl statusText lastSeenAt')
+      .populate('lastMessage.senderId', 'username displayName')
+      .lean();
+
+    return conversations as unknown as IConversation[];
+  }
+
 }
 
 export const conversationService = new ConversationService();

@@ -1,7 +1,9 @@
 import { Router } from 'express';
-import { getMessages, getOrCreateDirect, sendMessage } from '../controllers/conversation.controller.js';
+import { getMessages, getOrCreateDirect, getUserConversations, sendMessage } from '../controllers/conversation.controller.js';
 
 export const conversationRouter = Router();
+
+conversationRouter.get('/', getUserConversations);
 
 conversationRouter.post('/direct', getOrCreateDirect);
 

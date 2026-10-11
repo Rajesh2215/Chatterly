@@ -96,3 +96,29 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
     });
   }
 }
+
+export async function getUserConversations(req: Request, res: Response): Promise<void> {
+  try {
+    const { userId } = req.query;
+
+    if (!userId || typeof userId !== 'string') {
+      res.status(400).json({
+        success: false,
+        error: 'userId query parameter is required',
+      });
+      return;
+    }
+
+    const conversations = await conversationService.getUserConversations(userId);
+
+    res.status(200).json({
+      success: true,
+      data: conversations,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error',
+    });
+  }
+}
