@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { redis } from './config/redis.js';
 import { apiRouter } from './routes/index.js';
+import cookieParser from 'cookie-parser';
 
 // Load environment variables
 dotenv.config();
@@ -12,9 +13,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
+
 app.use('/api', apiRouter);
+
 // Upgraded Health Check: Pings both Mongo & Redis
 app.get('/health', async (req, res) => {
   const mongoState = mongoose.connection.readyState === 1 ? 'healthy' : 'unhealthy';
