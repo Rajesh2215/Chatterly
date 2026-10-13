@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import '@/styles/chat.css';
+import '@/styles/auth.css';
 
 export const metadata: Metadata = {
   title: 'Chatterly — Modern Real-Time Chat',

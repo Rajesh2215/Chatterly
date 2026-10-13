@@ -1,12 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ApiConversation, Conversation, CURRENT_USER, Message, ThemeMode, UserProfile } from '@/types/chat';
+import { useRouter } from 'next/navigation';
+import { ApiConversation, Conversation, Message, ThemeMode, UserProfile } from '@/types/chat';
 import {
   getConversations,
   getConversationMessages,
   sendMessage,
 } from '@/api';
+import { getMe, logout as apiLogout } from '@/api/auth';
+import { setCurrentUser as setAuthUser, clearAuth } from '@/lib/auth';
 import {
   formatConversationTime,
   formatMessageTime,
@@ -21,12 +24,19 @@ interface ChatShellProps {
   initialTheme?: ThemeMode;
 }
 
-// Default initial user ID (Alex Rivera's MongoDB ID)
-const DEFAULT_USER_ID = CURRENT_USER.id;
+// Default initial user ID (Alex Rivera's MongoDB ID) - only used as fallback before auth loads
+const FALLBACK_USER: UserProfile = {
+  id: '',
+  name: '',
+  displayName: 'Loading...',
+  status: 'online',
+};
 
 export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) => {
-  const [currentUserId, setCurrentUserId] = useState<string>(DEFAULT_USER_ID);
-  const [currentUser, setCurrentUser] = useState<UserProfile>(CURRENT_USER);
+  const router = useRouter();
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [currentUser, setCurrentUserState] = useState<UserProfile>(FALLBACK_USER);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   const [availablePeers, setAvailablePeers] = useState<{ id: string; displayName: string; name: string }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -37,7 +47,35 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Initialize theme and userId from localStorage or URL query params on mount
+  // Restore auth session on mount (silent refresh via httpOnly cookie)
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        // getMe hits /api/auth/me — if access token is expired, the
+        // client.ts interceptor will silently call /auth/refresh first
+        const user = await getMe();
+        setAuthUser(user);
+        setCurrentUserState({
+          id: user.id,
+          name: user.username,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          status: 'online',
+          customStatus: user.statusText || 'Active',
+        });
+        setCurrentUserId(user.id);
+      } catch {
+        // Refresh failed → redirect to login
+        clearAuth();
+        router.replace('/login');
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    restoreSession();
+  }, [router]);
+
+  // Initialize theme from localStorage on mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('chatterly_theme') as ThemeMode | null;
     if (savedTheme) {
@@ -45,15 +83,6 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
       document.documentElement.setAttribute('data-theme', savedTheme);
     } else {
       document.documentElement.setAttribute('data-theme', initialTheme);
-    }
-
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const paramUserId = urlParams.get('userId');
-      const savedUserId = localStorage.getItem('chatterly_user_id');
-      const activeId = paramUserId || savedUserId || DEFAULT_USER_ID;
-      setCurrentUserId(activeId);
-      setCurrentUser((prev) => ({ ...prev, id: activeId }));
     }
   }, [initialTheme]);
 
@@ -128,9 +157,9 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         }
 
         if (foundUserProfile) {
-          setCurrentUser(foundUserProfile);
+          setCurrentUserState(foundUserProfile);
         } else {
-          setCurrentUser({
+          setCurrentUserState({
             id: userId,
             name: `user_${userId.slice(-4)}`,
             displayName: `User (${userId.slice(-6)})`,
@@ -162,33 +191,23 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     [fetchMessagesForConversation]
   );
 
-  // Initial load: Fetch inbox whenever currentUserId changes
-  useEffect(() => {
-    if (currentUserId) {
-      loadUserConversations(currentUserId);
-    }
-  }, [currentUserId, loadUserConversations]);
-
-  // Switch between discovered users in the database
-  const handleSwitchUser = () => {
-    if (availablePeers.length > 0) {
-      if (currentUserId === CURRENT_USER.id) {
-        const nextPeer = availablePeers[0];
-        setCurrentUserId(nextPeer.id);
-        localStorage.setItem('chatterly_user_id', nextPeer.id);
-      } else {
-        setCurrentUserId(CURRENT_USER.id);
-        localStorage.setItem('chatterly_user_id', CURRENT_USER.id);
-      }
-    } else {
-      const alternateId =
-        currentUserId === CURRENT_USER.id
-          ? '6acb26dcc54fcdc4ca42c9ce'
-          : CURRENT_USER.id;
-      setCurrentUserId(alternateId);
-      localStorage.setItem('chatterly_user_id', alternateId);
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await apiLogout();
+    } catch {/* ignore */} finally {
+      clearAuth();
+      router.replace('/login');
     }
   };
+
+  // Initial load: Fetch inbox whenever currentUserId changes
+  useEffect(() => {
+    if (currentUserId && !isAuthLoading) {
+      loadUserConversations(currentUserId);
+    }
+  }, [currentUserId, isAuthLoading, loadUserConversations]);
+
 
   // Handle selecting a conversation
   const handleSelectConversation = async (id: string) => {
@@ -339,6 +358,16 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
+  if (isAuthLoading) {
+    return (
+      <div className="chatterly-app-root" data-theme={theme}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#64748b', fontSize: '0.9rem' }}>
+          <span style={{ marginRight: '0.5rem' }}>⚡</span> Restoring session...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="chatterly-app-root" data-theme={theme}>
       <div className={`chat-shell ${activeConversationId ? 'chat-open' : ''}`}>
@@ -350,7 +379,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           currentUser={currentUser}
           theme={theme}
           onToggleTheme={handleToggleTheme}
-          onSwitchUser={handleSwitchUser}
+          onLogout={handleLogout}
           isLoading={isLoadingConversations}
           onNewChat={() => loadUserConversations(currentUserId)}
         />

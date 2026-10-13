@@ -4,6 +4,15 @@ import { ulid } from 'ulid';
 import { User, IUser } from '../models/User.js';
 import { redis } from '../config/redis.js';
 
+export interface UserPublicDto {
+  id: string;
+  username: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string;
+  statusText?: string;
+}
+
 export interface TokenPayload {
   userId: string;
   username: string;
@@ -58,7 +67,7 @@ export class AuthService {
     email: string;
     password: string;
     displayName: string;
-  }): Promise<{ user: Partial<IUser>; tokens: AuthTokens }> {
+  }): Promise<{ user: UserPublicDto; tokens: AuthTokens }> {
     const { username, email, password, displayName } = data;
 
     // Check if username or email already exists
@@ -87,7 +96,7 @@ export class AuthService {
 
     return {
       user: {
-        _id: newUser._id as any,
+        id: (newUser._id as any).toString(),
         username: newUser.username,
         email: newUser.email,
         displayName: newUser.displayName,
@@ -101,7 +110,7 @@ export class AuthService {
   async login(data: {
     identifier: string; // can be email or username
     password: string;
-  }): Promise<{ user: Partial<IUser>; tokens: AuthTokens }> {
+  }): Promise<{ user: UserPublicDto; tokens: AuthTokens }> {
     const { identifier, password } = data;
 
     const user = await User.findOne({
@@ -121,7 +130,7 @@ export class AuthService {
 
     return {
       user: {
-        _id: user._id as any,
+        id: (user._id as any).toString(),
         username: user.username,
         email: user.email,
         displayName: user.displayName,

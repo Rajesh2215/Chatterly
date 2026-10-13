@@ -13,6 +13,7 @@ interface ConversationListProps {
   onToggleTheme: () => void;
   onNewChat?: () => void;
   onSwitchUser?: () => void;
+  onLogout?: () => void;
   isLoading?: boolean;
 }
 
@@ -25,6 +26,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   onToggleTheme,
   onNewChat,
   onSwitchUser,
+  onLogout,
   isLoading = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,14 +97,15 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           </div>
         </div>
 
-        {onSwitchUser && (
+        {onLogout && (
           <button
             type="button"
             className="user-switch-btn"
-            onClick={onSwitchUser}
-            title="Switch active user"
+            onClick={onLogout}
+            title="Sign out"
+            style={{ color: '#f87171' }}
           >
-            ⇄ Switch User
+            ⏻ Sign Out
           </button>
         )}
       </div>

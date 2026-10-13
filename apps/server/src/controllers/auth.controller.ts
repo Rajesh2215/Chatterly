@@ -15,10 +15,10 @@ export async function register(req: Request, res: Response): Promise<void> {
   try {
     const { username, email, password, displayName } = req.body;
 
-    if (!username || !email || !password || !displayName) {
+    if (!username || !email || !password) {
       res.status(400).json({
         success: false,
-        error: 'username, email, password, and displayName are all required',
+        error: 'username, email, and password are required',
       });
       return;
     }
@@ -35,7 +35,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       username,
       email,
       password,
-      displayName,
+      displayName: displayName || username,
     });
 
     // Send Refresh Token in secure httpOnly cookie
@@ -60,7 +60,9 @@ export async function register(req: Request, res: Response): Promise<void> {
 
 export async function login(req: Request, res: Response): Promise<void> {
   try {
-    const { identifier, password } = req.body;
+    // Accept either `identifier` or `email` from the frontend
+    const identifier = req.body.identifier || req.body.email;
+    const { password } = req.body;
 
     if (!identifier || !password) {
       res.status(400).json({
@@ -153,7 +155,14 @@ export async function getMe(req: Request, res: Response): Promise<void> {
 
     res.status(200).json({
       success: true,
-      data: user,
+      data: {
+        id: (user._id as any).toString(),
+        username: user.username,
+        email: user.email,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        statusText: user.statusText,
+      },
     });
   } catch (error: any) {
     res.status(500).json({
