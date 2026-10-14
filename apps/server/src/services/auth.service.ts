@@ -141,9 +141,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Rotate access token using a valid refresh token verified against Redis
-   */
   async refreshAccessToken(token: string): Promise<{ accessToken: string }> {
     try {
       const decoded = jwt.verify(token, this.refreshSecret) as RefreshTokenPayload;
@@ -179,6 +176,52 @@ export class AuthService {
     } catch {
       // If token is invalid or expired, no action needed
     }
+  }
+
+  async getUserProfile(userId: string): Promise<UserPublicDto> {
+    const user = await User.findById(userId).lean();
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return {
+      id: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      displayName: user.displayName || user.username,
+      avatarUrl: user.avatarUrl,
+      statusText: user.statusText,
+    };
+  }
+
+  async searchUsers(query = '', excludeUserId?: string): Promise<UserPublicDto[]> {
+    const filter: any = {};
+
+    if (excludeUserId) {
+      filter._id = { $ne: excludeUserId };
+    }
+
+    if (query.trim()) {
+      filter.$or = [
+        { username: { $regex: query.trim(), $options: 'i' } },
+        { displayName: { $regex: query.trim(), $options: 'i' } },
+        { email: { $regex: query.trim(), $options: 'i' } },
+      ];
+    }
+
+    const users = await User.find(filter)
+      .select('_id username displayName avatarUrl statusText lastSeenAt email')
+      .limit(30)
+      .lean();
+
+    return users.map((u: any) => ({
+      id: u._id.toString(),
+      username: u.username,
+      email: u.email,
+      displayName: u.displayName || u.username,
+      avatarUrl: u.avatarUrl,
+      statusText: u.statusText,
+    }));
   }
 }
 

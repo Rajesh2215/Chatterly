@@ -29,7 +29,10 @@ export class ConversationService {
 
     let conversation = await Conversation.findOne({
       type: 'direct',
-      participants: { $all: [currentUserId, participantId], $size: 2 },
+      participants: {
+        $all: [new Types.ObjectId(currentUserId), new Types.ObjectId(participantId)],
+        $size: 2,
+      },
     }).populate('participants', 'username displayName avatarUrl statusText lastSeenAt');
 
     let isNew = false;

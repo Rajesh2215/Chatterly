@@ -55,3 +55,31 @@ export async function sendMessage(conversationId: string,
 
   return response.data.data;
 }
+
+export interface SearchedUser {
+  id: string;
+  _id: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  status: string;
+  statusText?: string;
+}
+
+export async function searchUsers(query = '', currentUserId = ''): Promise<SearchedUser[]> {
+  const response = await apiClient.get<ApiResponse<SearchedUser[]>>('/auth/users', {
+    params: { q: query, currentUserId },
+  });
+  return response.data.data;
+}
+
+export async function getOrCreateDirectConversation(
+  currentUserId: string,
+  participantId: string
+): Promise<ApiConversation> {
+  const response = await apiClient.post<ApiResponse<ApiConversation>>('/conversations/direct', {
+    currentUserId,
+    participantId,
+  });
+  return response.data.data;
+}

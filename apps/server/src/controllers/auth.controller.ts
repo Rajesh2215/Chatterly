@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service.js';
-import { User } from '../models/User.js';
 
 // Cookie options: Secure, httpOnly, 7 days
 const REFRESH_COOKIE_NAME = 'chatterly_refresh_token';
@@ -144,25 +143,35 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function getMe(req: Request, res: Response): Promise<void> {
   try {
-    // req.user will be attached by our auth middleware!
     const userId = (req as any).user?.userId;
-    const user = await User.findById(userId);
-
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
     }
 
+    const profile = await authService.getUserProfile(userId);
     res.status(200).json({
       success: true,
-      data: {
-        id: (user._id as any).toString(),
-        username: user.username,
-        email: user.email,
-        displayName: user.displayName,
-        avatarUrl: user.avatarUrl,
-        statusText: user.statusText,
-      },
+      data: profile,
+    });
+  } catch (error: any) {
+    const status = error.message?.includes('not found') ? 404 : 500;
+    res.status(status).json({
+      success: false,
+      error: error.message || 'Internal Server Error',
+    });
+  }
+}
+
+export async function searchUsers(req: Request, res: Response): Promise<void> {
+  try {
+    const query = (req.query.q as string) || '';
+    const currentUserId = (req.query.currentUserId as string) || (req as any).user?.userId;
+
+    const users = await authService.searchUsers(query, currentUserId);
+    res.status(200).json({
+      success: true,
+      data: users,
     });
   } catch (error: any) {
     res.status(500).json({
