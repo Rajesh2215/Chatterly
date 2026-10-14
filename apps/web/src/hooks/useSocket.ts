@@ -21,6 +21,12 @@ export function useSocket({
 }: UseSocketOptions) {
   const socketRef = useRef<AppSocket | null>(null);
   const prevConversationRef = useRef<string | null>(null);
+  const activeConversationRef = useRef<string | null>(activeConversationId);
+
+  // Keep active conversation ref synchronized
+  useEffect(() => {
+    activeConversationRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   // Connect when we have an access token
   useEffect(() => {
@@ -29,11 +35,15 @@ export function useSocket({
     const socket = getSocket(accessToken);
     socketRef.current = socket;
 
-    socket.connect();
-
-    socket.on('connect', () => {
+    const handleConnect = () => {
       console.log('🔌 Socket connected:', socket.id);
-    });
+      // Re-join active room if a conversation is open when socket connects/reconnects
+      if (activeConversationRef.current) {
+        socket.emit('join_conversation', activeConversationRef.current);
+      }
+    };
+
+    socket.on('connect', handleConnect);
 
     socket.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason);
@@ -43,9 +53,11 @@ export function useSocket({
       console.error('Socket error:', message);
     });
 
+    socket.connect();
+
     // Cleanup on unmount / token change
     return () => {
-      socket.off('connect');
+      socket.off('connect', handleConnect);
       socket.off('disconnect');
       socket.off('error');
       disconnectSocket();
