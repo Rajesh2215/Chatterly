@@ -6,15 +6,39 @@ interface MessageComposerProps {
   onSendMessage: (content: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  onTypingStart?: () => void;
+  onTypingStop?: () => void;
 }
 
 export const MessageComposer: React.FC<MessageComposerProps> = ({
   onSendMessage,
   disabled = false,
   placeholder = 'Type a message...',
+  onTypingStart,
+  onTypingStop
 }) => {
   const [content, setContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear timer when unmounting
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setContent(e.target.value); // ✅ Fixed: use setContent instead of setValue
+
+    onTypingStart?.();
+
+    // Stop typing after 2 seconds of inactivity
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      onTypingStop?.();
+    }, 2000);
+  };
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -28,6 +52,11 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const handleSend = () => {
     const trimmed = content.trim();
     if (!trimmed || disabled) return;
+
+    // ✅ Stop typing immediately when message is sent
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    onTypingStop?.();
+
     onSendMessage(trimmed);
     setContent('');
     if (textareaRef.current) {
@@ -81,7 +110,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             className="composer-textarea"
             rows={1}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={handleChange}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}

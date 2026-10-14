@@ -20,14 +20,6 @@ export interface UserProfile {
   customStatus?: string;
 }
 
-export const CURRENT_USER: UserProfile = {
-  id: '6acb3c35a3fff772fc733bd1', // Alex Rivera's real MongoDB ID
-  name: 'alex_rivera',
-  displayName: 'Alex Rivera',
-  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  status: 'online',
-  customStatus: 'Coding something fast with Next.js 🚀',
-};
 
 export interface Conversation {
   id: string;

@@ -9,7 +9,7 @@ import {
   sendMessage,
 } from '@/api';
 import { getMe, logout as apiLogout } from '@/api/auth';
-import { setCurrentUser as setAuthUser, clearAuth } from '@/lib/auth';
+import { getCurrentUser, setCurrentUser as setAuthUser, clearAuth, getAccessToken } from '@/lib/auth';
 import {
   formatConversationTime,
   formatMessageTime,
@@ -19,26 +19,43 @@ import {
 import { ConversationList } from './ConversationList';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
+import { NewChatModal } from './NewChatModal';
+import { getOrCreateDirectConversation, SearchedUser } from '@/api/conversations';
+import { useSocket } from '@/hooks/useSocket';
+import { MessagePayload, TypingPayload } from '@/lib/socket.types';
+import { disconnectSocket } from '@/lib/socket';
 
 interface ChatShellProps {
   initialTheme?: ThemeMode;
 }
 
-// Default initial user ID (Alex Rivera's MongoDB ID) - only used as fallback before auth loads
-const FALLBACK_USER: UserProfile = {
+const INITIAL_EMPTY_USER: UserProfile = {
   id: '',
   name: '',
-  displayName: 'Loading...',
+  displayName: '',
   status: 'online',
 };
 
 export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) => {
   const router = useRouter();
-  const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [currentUser, setCurrentUserState] = useState<UserProfile>(FALLBACK_USER);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
-  const [availablePeers, setAvailablePeers] = useState<{ id: string; displayName: string; name: string }[]>([]);
+  const cachedAuth = getCurrentUser();
+
+  const [currentUserId, setCurrentUserId] = useState<string>(cachedAuth?.id || '');
+  const [currentUser, setCurrentUserState] = useState<UserProfile>(
+    cachedAuth
+      ? {
+          id: cachedAuth.id,
+          name: cachedAuth.username,
+          displayName: cachedAuth.displayName,
+          avatarUrl: cachedAuth.avatarUrl,
+          status: 'online',
+          customStatus: cachedAuth.statusText || 'Active',
+        }
+      : INITIAL_EMPTY_USER
+  );
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(!cachedAuth);
+  const [isNewChatModalOpen, setIsNewChatModalOpen] = useState<boolean>(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(initialTheme);
@@ -46,6 +63,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});   // { userId: username } — tracks who is currently typing
 
   // Restore auth session on mount (silent refresh via httpOnly cookie)
   useEffect(() => {
@@ -72,8 +90,12 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         setIsAuthLoading(false);
       }
     };
-    restoreSession();
-  }, [router]);
+    if (!cachedAuth) {
+      restoreSession();
+    } else {
+      setIsAuthLoading(false);
+    }
+  }, [router, cachedAuth]);
 
   // Initialize theme from localStorage on mount
   useEffect(() => {
@@ -85,6 +107,81 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
       document.documentElement.setAttribute('data-theme', initialTheme);
     }
   }, [initialTheme]);
+
+  //Socket: incoming real-time message
+  const handleNewMessage = useCallback(
+    (msg: MessagePayload) => {
+      const uiMsg = {
+        id: msg._id,
+        senderId: msg.senderId,
+        content: msg.content,
+        timestamp: new Date(msg.createdAt).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        status: msg.deliveryStatus as any,
+        createdAt: msg.createdAt,
+      };
+
+      setConversations((prev) =>
+        prev.map((conv) => {
+          if (conv.id !== msg.conversationId) return conv;
+          // Avoid duplicate
+          const exists = conv.messages.some((m) => m.id === msg._id);
+          if (exists) return conv;
+
+          // If sender has a pending optimistic message matching content, replace it
+          const hasPending = conv.messages.some(
+            (m) => m.status === 'pending' && m.content === msg.content
+          );
+          const nextMessages = hasPending
+            ? conv.messages.map((m) =>
+                m.status === 'pending' && m.content === msg.content ? uiMsg : m
+              )
+            : [...conv.messages, uiMsg];
+
+          return {
+            ...conv,
+            messages: nextMessages,
+            lastMessage: {
+              id: msg._id,
+              content: msg.content,
+              timestamp: new Date(msg.createdAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              senderId: msg.senderId,
+              status: 'sent',
+            },
+          };
+        })
+      );
+    },
+    []
+  );
+
+  // Socket: typing indicators
+  const handleUserTyping = useCallback((payload: TypingPayload) => {
+    if (payload.userId === currentUserId) return; // ignore self
+    setTypingUsers((prev) => ({ ...prev, [payload.userId]: payload.username }));
+  }, [currentUserId]);
+
+  const handleUserStopTyping = useCallback((payload: TypingPayload) => {
+    setTypingUsers((prev) => {
+      const next = { ...prev };
+      delete next[payload.userId];
+      return next;
+    });
+  }, []);
+
+  const { emitSendMessage, emitTypingStart, emitTypingStop } = useSocket({
+    accessToken: getAccessToken(),
+    activeConversationId,
+    onNewMessage: handleNewMessage,
+    onUserTyping: handleUserTyping,
+    onUserStopTyping: handleUserStopTyping,
+  });
+
 
   const handleToggleTheme = () => {
     const nextTheme: ThemeMode = theme === 'dark' ? 'light' : 'dark';
@@ -131,44 +228,6 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         setApiError(null);
         const apiConvs: ApiConversation[] = await getConversations(userId);
 
-        // Discover user profile & other available participants from DB data
-        const discoveredPeers: Map<string, { id: string; displayName: string; name: string }> = new Map();
-        let foundUserProfile: UserProfile | null = null;
-
-        for (const conv of apiConvs) {
-          for (const p of conv.participants) {
-            if (String(p._id) === userId) {
-              foundUserProfile = {
-                id: String(p._id),
-                name: p.username,
-                displayName: p.displayName || p.username,
-                avatarUrl: p.avatarUrl,
-                status: 'online',
-                customStatus: p.statusText || 'Active',
-              };
-            } else {
-              discoveredPeers.set(String(p._id), {
-                id: String(p._id),
-                displayName: p.displayName || p.username,
-                name: p.username,
-              });
-            }
-          }
-        }
-
-        if (foundUserProfile) {
-          setCurrentUserState(foundUserProfile);
-        } else {
-          setCurrentUserState({
-            id: userId,
-            name: `user_${userId.slice(-4)}`,
-            displayName: `User (${userId.slice(-6)})`,
-            status: 'online',
-          });
-        }
-
-        setAvailablePeers(Array.from(discoveredPeers.values()));
-
         const uiConvs = apiConvs.map((c) => transformApiConversationToUi(c, userId));
         setConversations(uiConvs);
 
@@ -195,11 +254,13 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const handleLogout = async () => {
     try {
       await apiLogout();
-    } catch {/* ignore */} finally {
+    } catch {/* ignore */ } finally {
+      disconnectSocket(); // ← add this
       clearAuth();
       router.replace('/login');
     }
   };
+
 
   // Initial load: Fetch inbox whenever currentUserId changes
   useEffect(() => {
@@ -217,6 +278,28 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     const existing = conversations.find((c) => c.id === id);
     if (!existing || existing.messages.length === 0) {
       await fetchMessagesForConversation(id);
+    }
+  };
+
+  const handleSelectUserToChat = async (targetUser: SearchedUser) => {
+    try {
+      setIsLoadingConversations(true);
+      const targetId = targetUser.id || targetUser._id;
+      const apiConv = await getOrCreateDirectConversation(currentUser.id, targetId);
+
+      // Refresh user's conversations
+      const apiConvs = await getConversations(currentUser.id);
+      const uiConvs = apiConvs.map((c) => transformApiConversationToUi(c, currentUser.id));
+      setConversations(uiConvs);
+
+      const convId = String(apiConv._id);
+      setActiveConversationId(convId);
+      await fetchMessagesForConversation(convId);
+    } catch (err: any) {
+      console.error('Failed to initiate conversation:', err);
+      setApiError(err.message || 'Failed to start conversation');
+    } finally {
+      setIsLoadingConversations(false);
     }
   };
 
@@ -264,57 +347,14 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         })
       );
 
-      // 3. Fire POST /api/conversations/:id/messages
+      // 3. Send via real-time WebSocket
       try {
-        const confirmedApiMsg = await sendMessage(activeConversationId, {
-          senderId: currentUser.id,
-          content: text,
-        });
-
-        const confirmedUiMsg = transformApiMessageToUi(confirmedApiMsg);
-
-        // 4. Replace temporary message with confirmed ULID message from server
-        setConversations((prev) =>
-          prev.map((conv) => {
-            if (conv.id === activeConversationId) {
-              const updatedMessages = conv.messages.map((m) =>
-                m.id === tempId ? confirmedUiMsg : m
-              );
-              return {
-                ...conv,
-                messages: updatedMessages,
-                lastMessage: {
-                  id: confirmedApiMsg._id,
-                  content: confirmedApiMsg.content,
-                  timestamp: formatConversationTime(confirmedApiMsg.createdAt),
-                  senderId: currentUser.id,
-                  status: 'sent',
-                },
-              };
-            }
-            return conv;
-          })
-        );
+        emitSendMessage(activeConversationId, text);
       } catch (err: any) {
-        console.error('Failed to send message:', err);
-        // Mark message as failed
-        setConversations((prev) =>
-          prev.map((conv) => {
-            if (conv.id === activeConversationId) {
-              const updatedMessages = conv.messages.map((m) =>
-                m.id === tempId ? { ...m, status: 'pending' as const } : m
-              );
-              return {
-                ...conv,
-                messages: updatedMessages,
-              };
-            }
-            return conv;
-          })
-        );
+        console.error('Failed to emit message via socket:', err);
       }
     },
-    [activeConversationId, currentUser.id]
+    [activeConversationId, currentUser.id, emitSendMessage]
   );
 
   // Scroll-Up Pagination with ULID cursor
@@ -381,7 +421,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           onToggleTheme={handleToggleTheme}
           onLogout={handleLogout}
           isLoading={isLoadingConversations}
-          onNewChat={() => loadUserConversations(currentUserId)}
+          onNewChat={() => setIsNewChatModalOpen(true)}
         />
 
         {/* Right Column (Main Chat Viewport) */}
@@ -393,11 +433,14 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
               onLoadOlderMessages={handleLoadOlderMessages}
               isLoadingOlder={isLoadingOlder}
               onBack={handleBackToConversations}
+              typingUsers={typingUsers}
             />
             <MessageComposer
               onSendMessage={handleSendMessage}
               placeholder={`Message ${activeConversation.peer.displayName}...`}
               disabled={isLoadingMessages}
+              onTypingStart={() => activeConversationId && emitTypingStart(activeConversationId)}
+              onTypingStop={() => activeConversationId && emitTypingStop(activeConversationId)}
             />
           </main>
         ) : (
@@ -416,6 +459,13 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           </div>
         )}
       </div>
+
+      <NewChatModal
+        isOpen={isNewChatModalOpen}
+        onClose={() => setIsNewChatModalOpen(false)}
+        onSelectUser={handleSelectUserToChat}
+        currentUserId={currentUser.id}
+      />
     </div>
   );
 };

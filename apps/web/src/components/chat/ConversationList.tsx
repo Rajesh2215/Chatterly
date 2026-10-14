@@ -12,7 +12,6 @@ interface ConversationListProps {
   theme: ThemeMode;
   onToggleTheme: () => void;
   onNewChat?: () => void;
-  onSwitchUser?: () => void;
   onLogout?: () => void;
   isLoading?: boolean;
 }
@@ -25,7 +24,6 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   theme,
   onToggleTheme,
   onNewChat,
-  onSwitchUser,
   onLogout,
   isLoading = false,
 }) => {

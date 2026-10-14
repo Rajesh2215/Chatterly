@@ -10,6 +10,7 @@ interface MessageListProps {
   onLoadOlderMessages?: () => Promise<void> | void;
   isLoadingOlder?: boolean;
   onBack?: () => void;
+  typingUsers?: Record<string, string>; // { userId: username }
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -18,6 +19,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   onLoadOlderMessages,
   isLoadingOlder = false,
   onBack,
+  typingUsers
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
@@ -130,8 +132,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                 {peer.status === 'online'
                   ? 'online'
                   : peer.lastSeen
-                  ? `last seen ${peer.lastSeen}`
-                  : 'offline'}
+                    ? `last seen ${peer.lastSeen}`
+                    : 'offline'}
               </span>
             </div>
           </div>
@@ -208,6 +210,17 @@ export const MessageList: React.FC<MessageListProps> = ({
             />
           ))
         )}
+        {Object.values(typingUsers ?? {}).length > 0 && (
+          <div className="typing-indicator">
+            <span className="typing-dots">
+              <span /><span /><span />
+            </span>
+            <span className="typing-label">
+              {Object.values(typingUsers!).join(', ')} {Object.values(typingUsers!).length === 1 ? 'is' : 'are'} typing...
+            </span>
+          </div>
+        )}
+
       </div>
     </div>
   );
