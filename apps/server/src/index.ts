@@ -1,3 +1,4 @@
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -6,6 +7,7 @@ import { connectDB } from './config/db.js';
 import { redis } from './config/redis.js';
 import { apiRouter } from './routes/index.js';
 import cookieParser from 'cookie-parser';
+import { createSocketServer } from './socket/socket.server.js';
 
 // Load environment variables
 dotenv.config();
@@ -44,12 +46,16 @@ app.get('/health', async (req, res) => {
   });
 });
 
+
 async function bootstrap() {
   await connectDB();
-
-  app.listen(PORT, () => {
+  // Wrap Express app in a raw Node http.Server
+  // Socket.io attaches to the http server, NOT the express app directly
+  const httpServer = http.createServer(app);
+  createSocketServer(httpServer);
+  httpServer.listen(PORT, () => {
     console.log(`🚀 Chatterly server running on http://localhost:${PORT}`);
+    console.log(`🔌 Socket.io ready`);
   });
 }
-
 bootstrap();
