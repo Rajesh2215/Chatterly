@@ -87,12 +87,20 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
           createdAt: (message as any).createdAt?.toISOString?.() || new Date().toISOString(),
         };
 
-        const conversation = await Conversation.findById(conversationId)
-        if (!conversation) return
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) return;
+
+        conversation.lastMessage = {
+          id: message._id as string,
+          senderId: socket.data.userId as any,
+          content: message.content,
+          createdAt: (message as any).createdAt || new Date(),
+        };
+        await conversation.save();
 
         conversation.participants.forEach((participantId) => {
-          io.to(`user:${participantId}`).emit('new_message', payload)
-        })
+          io.to(`user:${participantId.toString()}`).emit('new_message', payload);
+        });
 
 
       } catch (err) {

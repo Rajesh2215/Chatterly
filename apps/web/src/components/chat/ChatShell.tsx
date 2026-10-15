@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiConversation, Conversation, Message, ThemeMode, UserProfile } from '@/types/chat';
 import {
@@ -45,13 +45,13 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [currentUser, setCurrentUserState] = useState<UserProfile>(
     cachedAuth
       ? {
-          id: cachedAuth.id,
-          name: cachedAuth.username,
-          displayName: cachedAuth.displayName,
-          avatarUrl: cachedAuth.avatarUrl,
-          status: 'online',
-          customStatus: cachedAuth.statusText || 'Active',
-        }
+        id: cachedAuth.id,
+        name: cachedAuth.username,
+        displayName: cachedAuth.displayName,
+        avatarUrl: cachedAuth.avatarUrl,
+        status: 'online',
+        customStatus: cachedAuth.statusText || 'Active',
+      }
       : INITIAL_EMPTY_USER
   );
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(!cachedAuth);
@@ -108,9 +108,15 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     }
   }, [initialTheme]);
 
-  //Socket: incoming real-time message
+  const activeConversationIdRef = useRef<string | null>(activeConversationId);
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
+  // Socket: incoming real-time message
   const handleNewMessage = useCallback(
-    (msg: MessagePayload) => {
+    async (msg: MessagePayload) => {
+
       const uiMsg = {
         id: msg._id,
         senderId: msg.senderId,
@@ -122,6 +128,27 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         status: msg.deliveryStatus as any,
         createdAt: msg.createdAt,
       };
+
+      const isActiveConversation = activeConversationIdRef.current === msg.conversationId;
+      const isFromSelf = msg.senderId === currentUserId;
+
+      const convExists = conversations.some((c) => c.id === msg.conversationId);
+      if (!convExists) {
+        const apiConvs = await getConversations(currentUserId);
+        const uiConvs = apiConvs.map((c) => {
+          const uiConv = transformApiConversationToUi(c, currentUserId);
+          if (uiConv.id === msg.conversationId) {
+            return {
+              ...uiConv,
+              unreadCount: isActiveConversation || isFromSelf ? 0 : 1,
+              messages: [uiMsg],
+            };
+          }
+          return uiConv;
+        });
+        setConversations(uiConvs);
+        return;
+      }
 
       setConversations((prev) =>
         prev.map((conv) => {
@@ -136,12 +163,20 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           );
           const nextMessages = hasPending
             ? conv.messages.map((m) =>
-                m.status === 'pending' && m.content === msg.content ? uiMsg : m
-              )
+              m.status === 'pending' && m.content === msg.content ? uiMsg : m
+            )
             : [...conv.messages, uiMsg];
+
+          // Increment unread count if message is from peer in another chat
+          const isFromSelf = msg.senderId === currentUserId;
+          const nextUnreadCount =
+            isActiveConversation || isFromSelf
+              ? 0
+              : (conv.unreadCount || 0) + 1;
 
           return {
             ...conv,
+            unreadCount: nextUnreadCount,
             messages: nextMessages,
             lastMessage: {
               id: msg._id,
@@ -157,13 +192,16 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         })
       );
     },
-    []
+    [conversations, currentUserId]
   );
 
   // Socket: typing indicators
   const handleUserTyping = useCallback((payload: TypingPayload) => {
     if (payload.userId === currentUserId) return; // ignore self
-    setTypingUsers((prev) => ({ ...prev, [payload.userId]: payload.username }));
+    // Only display typing indicator if it belongs to the active conversation
+    if (activeConversationIdRef.current === payload.conversationId) {
+      setTypingUsers((prev) => ({ ...prev, [payload.userId]: payload.username }));
+    }
   }, [currentUserId]);
 
   const handleUserStopTyping = useCallback((payload: TypingPayload) => {
@@ -273,6 +311,11 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   // Handle selecting a conversation
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
+
+    // Reset unread count for the selected conversation
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+    );
 
     // If conversation messages are not loaded yet, fetch from server
     const existing = conversations.find((c) => c.id === id);

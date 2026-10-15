@@ -6,7 +6,7 @@ import { MessagePayload, TypingPayload } from '@/lib/socket.types';
 
 interface UseSocketOptions {
   accessToken: string | null;
-  activeConversationId: string | null;
+  activeConversationId?: string | null;
   onNewMessage: (msg: MessagePayload) => void;
   onUserTyping: (payload: TypingPayload) => void;
   onUserStopTyping: (payload: TypingPayload) => void;
@@ -14,7 +14,6 @@ interface UseSocketOptions {
 
 export function useSocket({
   accessToken,
-  activeConversationId,
   onNewMessage,
   onUserTyping,
   onUserStopTyping,
