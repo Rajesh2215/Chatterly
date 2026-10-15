@@ -9,6 +9,7 @@ import {
   SocketData,
   MessagePayload,
 } from './socket.types.js';
+import { Conversation } from '../models/Conversation.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -57,20 +58,9 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
   io.on('connection', (socket: AppSocket) => {
     console.log(`🔌 Socket connected: ${socket.data.username} (${socket.id})`);
 
-    // Join a conversation room 
-    // Client calls this after opening a conversation.
-    // Socket.io rooms = pub/sub channels. Only sockets in the same room
-    // receive messages broadcast to that room.
-    socket.on('join_conversation', (conversationId: string) => {
-      socket.join(conversationId);
-      console.log(`  → ${socket.data.username} joined room: ${conversationId}`);
-    });
-
-    // Leave a conversation room 
-    socket.on('leave_conversation', (conversationId: string) => {
-      socket.leave(conversationId);
-      console.log(`  → ${socket.data.username} left room: ${conversationId}`);
-    });
+    const userRoom = `user:${socket.data.userId}`;
+    socket.join(userRoom);
+    console.log(`🔌 ${socket.data.username} joined their room: ${userRoom}`);
 
     // Send a message 
     // 1. Save to MongoDB
@@ -97,9 +87,14 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
           createdAt: (message as any).createdAt?.toISOString?.() || new Date().toISOString(),
         };
 
-        // Broadcast to ALL sockets in the room (including sender)
-        // so the sender's optimistic message gets confirmed with the real ULID
-        io.to(conversationId).emit('new_message', payload);
+        const conversation = await Conversation.findById(conversationId)
+        if (!conversation) return
+
+        conversation.participants.forEach((participantId) => {
+          io.to(`user:${participantId}`).emit('new_message', payload)
+        })
+
+
       } catch (err) {
         console.error('send_message error:', err);
         socket.emit('error', { message: 'Failed to send message' });
@@ -108,20 +103,31 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
 
     // Typing indicators 
     // Broadcast to everyone EXCEPT the sender
-    socket.on('typing_start', (conversationId: string) => {
-      socket.to(conversationId).emit('user_typing', {
-        conversationId,
-        userId: socket.data.userId,
-        username: socket.data.username,
-      });
+    socket.on('typing_start', async (conversationId: string) => {
+      const conversation = await Conversation.findById(conversationId)
+      if (!conversation) return
+
+      conversation.participants.forEach((participantId) => {
+        socket.to(`user:${participantId}`).emit('user_typing', {
+          conversationId,
+          userId: socket.data.userId,
+          username: socket.data.username,
+        });
+      })
+
     });
 
-    socket.on('typing_stop', (conversationId: string) => {
-      socket.to(conversationId).emit('user_stop_typing', {
-        conversationId,
-        userId: socket.data.userId,
-        username: socket.data.username,
-      });
+    socket.on('typing_stop', async (conversationId: string) => {
+      const conversation = await Conversation.findById(conversationId)
+      if (!conversation) return
+
+      conversation.participants.forEach((participantId) => {
+        socket.to(`user:${participantId}`).emit('user_stop_typing', {
+          conversationId,
+          userId: socket.data.userId,
+          username: socket.data.username,
+        });
+      })
     });
 
     // Disconnect 

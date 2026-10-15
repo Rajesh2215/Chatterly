@@ -20,13 +20,6 @@ export function useSocket({
   onUserStopTyping,
 }: UseSocketOptions) {
   const socketRef = useRef<AppSocket | null>(null);
-  const prevConversationRef = useRef<string | null>(null);
-  const activeConversationRef = useRef<string | null>(activeConversationId);
-
-  // Keep active conversation ref synchronized
-  useEffect(() => {
-    activeConversationRef.current = activeConversationId;
-  }, [activeConversationId]);
 
   // Connect when we have an access token
   useEffect(() => {
@@ -37,10 +30,6 @@ export function useSocket({
 
     const handleConnect = () => {
       console.log('🔌 Socket connected:', socket.id);
-      // Re-join active room if a conversation is open when socket connects/reconnects
-      if (activeConversationRef.current) {
-        socket.emit('join_conversation', activeConversationRef.current);
-      }
     };
 
     socket.on('connect', handleConnect);
@@ -63,24 +52,6 @@ export function useSocket({
       disconnectSocket();
     };
   }, [accessToken]);
-
-  // Join / leave rooms when active conversation changes
-  useEffect(() => {
-    const socket = socketRef.current;
-    if (!socket) return;
-
-    // Leave previous room
-    if (prevConversationRef.current) {
-      socket.emit('leave_conversation', prevConversationRef.current);
-    }
-
-    // Join new room
-    if (activeConversationId) {
-      socket.emit('join_conversation', activeConversationId);
-    }
-
-    prevConversationRef.current = activeConversationId;
-  }, [activeConversationId]);
 
   // Listen for incoming messages
   useEffect(() => {

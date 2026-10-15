@@ -12,8 +12,6 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'join_conversation': (conversationId: string) => void;
-  'leave_conversation': (conversationId: string) => void;
   'send_message': (payload: SendMessagePayload) => void;
   'typing_start': (conversationId: string) => void;
   'typing_stop': (conversationId: string) => void;
