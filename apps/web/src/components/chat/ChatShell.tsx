@@ -22,7 +22,7 @@ import { MessageComposer } from './MessageComposer';
 import { NewChatModal } from './NewChatModal';
 import { getOrCreateDirectConversation, SearchedUser } from '@/api/conversations';
 import { useSocket } from '@/hooks/useSocket';
-import { MessagePayload, TypingPayload } from '@/lib/socket.types';
+import { MessagePayload, MessageStatusPayload, TypingPayload } from '@/lib/socket.types';
 import { disconnectSocket } from '@/lib/socket';
 
 interface ChatShellProps {
@@ -131,6 +131,25 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
       const isActiveConversation = activeConversationIdRef.current === msg.conversationId;
       const isFromSelf = msg.senderId === currentUserId;
+      if (!isFromSelf) {
+        // 1. Tell sender: "Message was delivered to my device ✓✓"
+        emitMessageStatus({
+          messageId: msg._id,
+          conversationId: msg.conversationId,
+          senderId: msg.senderId,
+          status: 'delivered',
+        });
+
+        // 2. If I already have this chat open, also mark it as read immediately!
+        if (isActiveConversation) {
+          emitMessageStatus({
+            messageId: msg._id,
+            conversationId: msg.conversationId,
+            senderId: msg.senderId,
+            status: 'read',
+          });
+        }
+      }
 
       const convExists = conversations.some((c) => c.id === msg.conversationId);
       if (!convExists) {
@@ -212,12 +231,41 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     });
   }, []);
 
-  const { emitSendMessage, emitTypingStart, emitTypingStop } = useSocket({
+  const handleMessageStatus = useCallback((payload: MessageStatusPayload) => {
+    setConversations((prev) =>
+      prev.map((conv) => {
+        if (conv.id !== payload.conversationId) return conv;
+
+        const nextMessages = conv.messages.map((m) => {
+          // If messageId matches, or if bulk read (no messageId), update the status
+          if (!payload.messageId || m.id === payload.messageId) {
+            return { ...m, status: payload.status };
+          }
+          return m;
+        });
+
+        const nextLastMessage =
+          conv.lastMessage && (!payload.messageId || conv.lastMessage.id === payload.messageId)
+            ? { ...conv.lastMessage, status: payload.status }
+            : conv.lastMessage;
+
+        return {
+          ...conv,
+          messages: nextMessages,
+          lastMessage: nextLastMessage,
+        };
+      })
+    );
+  }, []);
+
+
+  const { emitSendMessage, emitTypingStart, emitTypingStop, emitMessageStatus } = useSocket({
     accessToken: getAccessToken(),
     activeConversationId,
     onNewMessage: handleNewMessage,
     onUserTyping: handleUserTyping,
     onUserStopTyping: handleUserStopTyping,
+    onMessageStatus: handleMessageStatus
   });
 
 
@@ -322,6 +370,16 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     if (!existing || existing.messages.length === 0) {
       await fetchMessagesForConversation(id);
     }
+
+    const selectedConv = conversations.find((c) => c.id === id);
+    if (selectedConv && selectedConv.peer.id) {
+      emitMessageStatus({
+        conversationId: id,
+        senderId: selectedConv.peer.id,
+        status: 'read',
+      });
+    }
+
   };
 
   const handleSelectUserToChat = async (targetUser: SearchedUser) => {

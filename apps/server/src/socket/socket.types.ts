@@ -9,12 +9,14 @@ export interface ServerToClientEvents {
   'user_typing': (payload: TypingPayload) => void;
   'user_stop_typing': (payload: TypingPayload) => void;
   'error': (payload: { message: string }) => void;
+  'message_status': (payload: MessageStatusPayload) => void;
 }
 
 export interface ClientToServerEvents {
   'send_message': (payload: SendMessagePayload) => void;
   'typing_start': (conversationId: string) => void;
   'typing_stop': (conversationId: string) => void;
+  'message_status': (payload: MessageStatusPayload) => void;
 }
 
 // Data attached to each connected socket (set after auth)
@@ -42,4 +44,11 @@ export interface TypingPayload {
   conversationId: string;
   userId: string;
   username: string;
+}
+
+export interface MessageStatusPayload {
+  messageId?: string; // Optional if marking all messages in conversation
+  conversationId: string;
+  senderId: string;   // The original sender who should receive this update
+  status: 'delivered' | 'read';
 }

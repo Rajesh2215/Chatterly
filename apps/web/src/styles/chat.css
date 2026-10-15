@@ -48,13 +48,13 @@
   --item-active-border: rgba(255, 255, 255, 0.35);
   
   /* Status & Ticks */
-  --tick-sent: rgba(9, 9, 11, 0.45);
-  --tick-delivered: rgba(9, 9, 11, 0.65);
-  --tick-read: #09090b;
+  --tick-sent: #71717a;
+  --tick-delivered: #18181b;
+  --tick-read: #0284c7;
   --badge-bg: #ffffff;
   --badge-text: #09090b;
-  --status-online: #ffffff;
-  --status-away: #a1a1aa;
+  --status-online: #22c55e;
+  --status-away: #eab308;
   --status-offline: #52525b;
   
   --shadow-header: 0 4px 20px rgba(0, 0, 0, 0.4);
@@ -109,13 +109,13 @@
   --item-active-border: rgba(0, 0, 0, 0.25);
   
   /* Status & Ticks */
-  --tick-sent: rgba(255, 255, 255, 0.45);
-  --tick-delivered: rgba(255, 255, 255, 0.7);
-  --tick-read: #ffffff;
+  --tick-sent: #a1a1aa;
+  --tick-delivered: #f4f4f5;
+  --tick-read: #38bdf8;
   --badge-bg: #09090b;
   --badge-text: #ffffff;
-  --status-online: #09090b;
-  --status-away: #71717a;
+  --status-online: #22c55e;
+  --status-away: #eab308;
   --status-offline: #a1a1aa;
   
   --shadow-header: 0 2px 10px rgba(0, 0, 0, 0.05);
@@ -301,11 +301,11 @@
 
 .status-indicator.online {
   background-color: var(--status-online);
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
 }
 
 [data-theme="light"] .status-indicator.online {
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
 .status-indicator.away {
@@ -704,7 +704,7 @@
 
 .status-dot-mini.online {
   background-color: var(--status-online);
-  box-shadow: 0 0 6px var(--status-online);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
 }
 
 .chat-header-actions {
@@ -874,9 +874,10 @@
 .delivery-tick {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: -2px;
-  margin-left: 2px;
+  margin-left: 3px;
+  font-weight: 600;
 }
 
 .delivery-tick.sent {

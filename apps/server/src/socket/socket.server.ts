@@ -142,6 +142,30 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
     socket.on('disconnect', (reason) => {
       console.log(`🔌 Socket disconnected: ${socket.data.username} — ${reason}`);
     });
+
+    // Listen for message status updates (delivered / read)
+    socket.on('message_status', async (payload) => {
+      try {
+        const { conversationId, messageId, senderId, status } = payload;
+
+        // 1. Update in MongoDB
+        if (messageId) {
+          await Message.findByIdAndUpdate(messageId, { deliveryStatus: status });
+        } else if (status === 'read') {
+          // If no messageId, mark all unread messages from this sender as 'read'
+          await Message.updateMany(
+            { conversationId, senderId, deliveryStatus: { $ne: 'read' } },
+            { deliveryStatus: 'read' }
+          );
+        }
+
+        // 2. Forward to the original sender's personal room
+        io.to(`user:${senderId}`).emit('message_status', payload);
+      } catch (err) {
+        console.error('Error updating message status:', err);
+      }
+    });
+
   });
 
   return io;
