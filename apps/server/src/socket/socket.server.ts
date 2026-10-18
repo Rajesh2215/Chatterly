@@ -13,6 +13,7 @@ import {
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
 import { getSocketRedisAdapter } from '../config/redisAdapter.js';
+import { produceMessageEvent } from '../queue/messageStream.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -158,39 +159,37 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
       if (!content?.trim()) return;
 
       try {
-        // Persist to DB (same model as HTTP route)
-        const message = await Message.create({
-          _id: ulid(),
+        console.log(`📨 [Socket Gateway] Incoming message from ${socket.data.username} in conv ${conversationId}`);
+
+        const messageId = ulid();
+        const nowIso = new Date().toISOString();
+
+        const payload: MessagePayload = {
+          _id: messageId,
           conversationId,
           senderId: socket.data.userId,
           content: content.trim(),
           deliveryStatus: 'sent',
-        });
+          createdAt: nowIso,
+        };
 
-        const payload: MessagePayload = {
-          _id: message._id as string,
+        // 1. FAST-PATH: Push to Redis Stream in <0.2ms (No disk blocking!)
+        await produceMessageEvent({
+          messageId,
           conversationId,
           senderId: socket.data.userId,
-          content: message.content,
+          content: content.trim(),
+          createdAt: nowIso,
           deliveryStatus: 'sent',
-          createdAt: (message as any).createdAt?.toISOString?.() || new Date().toISOString(),
-        };
+        });
 
-        const conversation = await Conversation.findById(conversationId);
+        // 2. Fetch participants to route WebSocket packets
+        const conversation = await Conversation.findById(conversationId).select('participants');
         if (!conversation) return;
-
-        conversation.lastMessage = {
-          id: message._id as string,
-          senderId: socket.data.userId as any,
-          content: message.content,
-          createdAt: (message as any).createdAt || new Date(),
-        };
-        await conversation.save();
 
         conversation.participants.forEach((participantId) => {
           io.to(`user:${participantId.toString()}`).emit('new_message', payload);
         });
-
 
       } catch (err) {
         console.error('send_message error:', err);

@@ -64,6 +64,9 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});   // { userId: username } — tracks who is currently typing
+  // Presence Cache Ref: Prevents race condition between early WebSocket "initial_presence"
+  // and slower HTTP REST "loadUserConversations", ensuring online green dots are never overwritten with "offline".
+  const onlineUsersSetRef = useRef<Set<string>>(new Set());
 
   // Restore auth session on mount (silent refresh via httpOnly cookie)
   useEffect(() => {
@@ -264,23 +267,30 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     );
   }, []);
 
-
+  // WebSocket: Initial presence list received on connection
   const handleInitialPresence = useCallback((onlineUserIds: string[]) => {
+    // 1. Cache the online IDs immediately so subsequent HTTP fetch can read them
+    onlineUsersSetRef.current = new Set(onlineUserIds);
+
+    // 2. Update any conversations already in React state
     setConversations((prev) =>
-      prev.map((conv) => {
-        const isOnline = onlineUserIds.includes(conv.peer.id);
-        return {
-          ...conv,
-          peer: {
-            ...conv.peer,
-            status: isOnline ? 'online' : 'offline',
-          },
-        };
-      })
+      prev.map((conv) => ({
+        ...conv,
+        peer: {
+          ...conv.peer,
+          status: onlineUsersSetRef.current.has(conv.peer.id) ? 'online' : 'offline',
+        },
+      }))
     );
   }, []);
 
   const handleUserPresence = useCallback((payload: UserPresencePayload) => {
+    if (payload.status === 'online') {
+      onlineUsersSetRef.current.add(payload.userId);
+    } else {
+      onlineUsersSetRef.current.delete(payload.userId);
+    }
+
     setConversations((prev) =>
       prev.map((conv) => {
         if (conv.peer.id !== payload.userId) return conv;
@@ -355,7 +365,15 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         setApiError(null);
         const apiConvs: ApiConversation[] = await getConversations(userId);
 
-        const uiConvs = apiConvs.map((c) => transformApiConversationToUi(c, userId));
+        // Reconcile with onlineUsersSetRef: If WebSocket finished before this HTTP call,
+        // preserve the "online" status instead of defaulting to "offline".
+        const uiConvs = apiConvs.map((c) => {
+          const ui = transformApiConversationToUi(c, userId);
+          if (onlineUsersSetRef.current.has(ui.peer.id)) {
+            ui.peer.status = 'online';
+          }
+          return ui;
+        });
         setConversations(uiConvs);
 
         // Keep activeConversationId as null on initial load (like WhatsApp Web).
