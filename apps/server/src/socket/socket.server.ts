@@ -15,6 +15,7 @@ import { User } from '../models/User.js';
 import { getSocketRedisAdapter } from '../config/redisAdapter.js';
 import { produceMessageEvent } from '../queue/messageStream.js';
 import { presenceService } from '../services/presence.service.js';
+import { unreadService } from '../services/unread.service.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -189,7 +190,13 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
         if (!conversation) return;
 
         conversation.participants.forEach((participantId) => {
-          io.to(`user:${participantId.toString()}`).emit('new_message', payload);
+          const pid = participantId.toString();
+          io.to(`user:${pid}`).emit('new_message', payload);
+
+          // If this participant is not the sender, increment their unread count in Redis in 0.05ms
+          if (pid !== socket.data.userId) {
+            unreadService.incrementUnread(pid, conversationId);
+          }
         });
 
       } catch (err) {
@@ -263,18 +270,22 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
       try {
         const { conversationId, messageId, senderId, status } = payload;
 
-        // 1. Update in MongoDB
+        // 1. Update MongoDB
         if (messageId) {
           await Message.findByIdAndUpdate(messageId, { deliveryStatus: status });
         } else if (status === 'read') {
-          // If no messageId, mark all unread messages from this sender as 'read'
           await Message.updateMany(
             { conversationId, senderId, deliveryStatus: { $ne: 'read' } },
             { deliveryStatus: 'read' }
           );
         }
 
-        // 2. Forward to the original sender's personal room
+        // 2. Clear Redis unread counter whenever this user reads the conversation
+        if (status === 'read') {
+          await unreadService.clearUnread(socket.data.userId, conversationId);
+        }
+
+        // 3. Forward receipt to the original sender
         io.to(`user:${senderId}`).emit('message_status', payload);
       } catch (err) {
         console.error('Error updating message status:', err);

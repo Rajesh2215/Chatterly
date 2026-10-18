@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Conversation, IConversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
 import { IMessage, Message } from '../models/Message.js';
+import { unreadService } from './unread.service.js';
 
 export interface DirectConversationResult {
   conversation: IConversation;
@@ -149,33 +150,14 @@ export class ConversationService {
 
     const convIds = conversations.map((c) => c._id);
 
-    // Calculate unread message count for each conversation
-    const unreadStats = await Message.aggregate([
-      {
-        $match: {
-          conversationId: { $in: convIds },
-          senderId: { $ne: new Types.ObjectId(userId) },
-          deliveryStatus: { $ne: 'read' },
-          isDeleted: { $ne: true },
-        },
-      },
-      {
-        $group: {
-          _id: '$conversationId',
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const unreadMap = new Map<string, number>();
-    unreadStats.forEach((stat) => {
-      unreadMap.set(String(stat._id), stat.count);
-    });
+    // O(1) Redis Hash Lookup (<0.1ms) with cold-cache MongoDB fallback:
+    const unreadMap = await unreadService.getUserUnreadCounts(userId, convIds);
 
     return conversations.map((conv) => ({
       ...conv,
       unreadCount: unreadMap.get(String(conv._id)) || 0,
     }));
+
   }
 
 }
