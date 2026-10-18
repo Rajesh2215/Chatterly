@@ -237,8 +237,12 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         if (conv.id !== payload.conversationId) return conv;
 
         const nextMessages = conv.messages.map((m) => {
-          // If messageId matches, or if bulk read (no messageId), update the status
+          // If messageId matches, or if bulk update (no messageId), update the status
           if (!payload.messageId || m.id === payload.messageId) {
+            // Never downgrade an already 'read' message back to 'delivered'
+            if (m.status === 'read' && payload.status === 'delivered') {
+              return m;
+            }
             return { ...m, status: payload.status };
           }
           return m;
@@ -246,7 +250,9 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
         const nextLastMessage =
           conv.lastMessage && (!payload.messageId || conv.lastMessage.id === payload.messageId)
-            ? { ...conv.lastMessage, status: payload.status }
+            ? conv.lastMessage.status === 'read' && payload.status === 'delivered'
+              ? conv.lastMessage
+              : { ...conv.lastMessage, status: payload.status }
             : conv.lastMessage;
 
         return {
@@ -352,27 +358,9 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         const uiConvs = apiConvs.map((c) => transformApiConversationToUi(c, userId));
         setConversations(uiConvs);
 
-        if (uiConvs.length > 0) {
-          const defaultConv = uiConvs[0];
-          const defaultConvId = defaultConv.id;
-          setActiveConversationId(defaultConvId);
-          await fetchMessagesForConversation(defaultConvId);
-
-          // 1. Reset unread count for the default open conversation
-          setConversations((prev) =>
-            prev.map((c) => (c.id === defaultConvId ? { ...c, unreadCount: 0 } : c))
-          );
-
-          // 2. Notify the sender that their messages in this conversation are now read
-          if (defaultConv.peer?.id) {
-            emitMessageStatus({
-              conversationId: defaultConvId,
-              senderId: defaultConv.peer.id,
-              status: 'read',
-            });
-          }
-        }
-        else {
+        // Keep activeConversationId as null on initial load (like WhatsApp Web).
+        // Conversations are only opened and marked as read when the user explicitly clicks one.
+        if (!activeConversationIdRef.current) {
           setActiveConversationId(null);
         }
       } catch (err: any) {
@@ -597,17 +585,103 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           </main>
         ) : (
           <div className="empty-viewport-state">
-            <div className="empty-viewport-icon">⚡</div>
-            <h2 className="empty-viewport-title">Chatterly Web</h2>
-            <p className="empty-viewport-subtitle">
-              {apiError ? (
-                <span style={{ color: '#ef4444' }}>
-                  {apiError}. Make sure Express server is running on http://localhost:3001.
-                </span>
-              ) : (
-                'Select a conversation or switch user to start messaging with real-time Express & MongoDB data.'
-              )}
-            </p>
+            <div className="welcome-card">
+              <div className="welcome-card-illustration">
+                <div className="welcome-laptop">
+                  <div className="welcome-laptop-screen">
+                    <div className="welcome-screen-lines">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <div className="welcome-screen-badge">
+                      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                        <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="welcome-laptop-base"></div>
+                </div>
+              </div>
+
+              <h2 className="welcome-card-title">Stay connected with Chatterly</h2>
+              <p className="welcome-card-subtitle">
+                {apiError ? (
+                  <span style={{ color: '#ef4444' }}>
+                    {apiError}. Make sure Express server is running on http://localhost:3001.
+                  </span>
+                ) : (
+                  'Real-time messaging with instant delivery sync, presence tracking, and clean dark mode.'
+                )}
+              </p>
+
+              <button
+                type="button"
+                className="welcome-card-action-btn"
+                onClick={() => setIsNewChatModalOpen(true)}
+              >
+                Start New Chat
+              </button>
+
+              <div className="welcome-card-quick-actions">
+                <button
+                  type="button"
+                  className="welcome-quick-action"
+                  onClick={() => setIsNewChatModalOpen(true)}
+                >
+                  <div className="welcome-quick-action-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  </div>
+                  <span>New chat</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="welcome-quick-action"
+                  onClick={() => setIsNewChatModalOpen(true)}
+                >
+                  <div className="welcome-quick-action-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="8.5" cy="7" r="4"></circle>
+                      <line x1="20" y1="8" x2="20" y2="14"></line>
+                      <line x1="23" y1="11" x2="17" y2="11"></line>
+                    </svg>
+                  </div>
+                  <span>Add contact</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="welcome-quick-action"
+                  onClick={handleToggleTheme}
+                >
+                  <div className="welcome-quick-action-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="5"></circle>
+                      <line x1="12" y1="1" x2="12" y2="3"></line>
+                      <line x1="12" y1="21" x2="12" y2="23"></line>
+                      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                      <line x1="1" y1="12" x2="3" y2="12"></line>
+                      <line x1="21" y1="12" x2="23" y2="12"></line>
+                      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                  </div>
+                  <span>Theme</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="welcome-footer-lock">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+              </svg>
+              <span>End-to-end encrypted</span>
+            </div>
           </div>
         )}
       </div>

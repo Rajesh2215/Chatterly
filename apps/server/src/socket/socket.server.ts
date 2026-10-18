@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
@@ -97,6 +98,50 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
           status: 'online',
         });
       });
+
+      // Deliver messages sent to this user while they were offline
+      try {
+        const userConversations = await Conversation.find({
+          participants: new Types.ObjectId(userId),
+        }).select('_id');
+
+        const convIds = userConversations.map((c) => c._id);
+        if (convIds.length > 0) {
+          const pendingMessages = await Message.find({
+            conversationId: { $in: convIds },
+            senderId: { $ne: new Types.ObjectId(userId) },
+            deliveryStatus: 'sent',
+          });
+
+          if (pendingMessages.length > 0) {
+            await Message.updateMany(
+              { _id: { $in: pendingMessages.map((m) => m._id) } },
+              { $set: { deliveryStatus: 'delivered' } }
+            );
+
+            // Notify each sender that their messages are now delivered (✓✓)
+            const notifyMap = new Map<string, Set<string>>();
+            pendingMessages.forEach((m) => {
+              const sId = String(m.senderId);
+              const cId = String(m.conversationId);
+              if (!notifyMap.has(sId)) notifyMap.set(sId, new Set());
+              notifyMap.get(sId)!.add(cId);
+            });
+
+            notifyMap.forEach((convSet, senderId) => {
+              convSet.forEach((conversationId) => {
+                io.to(`user:${senderId}`).emit('message_status', {
+                  conversationId,
+                  status: 'delivered',
+                  senderId,
+                });
+              });
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error marking offline messages delivered:', err);
+      }
     }
 
     // Send this socket the list of their contacts who are currently online

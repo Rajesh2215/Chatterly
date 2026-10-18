@@ -60,6 +60,7 @@ export interface ApiConversation {
     content: string;
     createdAt: string;
   };
+  unreadCount?: number;
   updatedAt: string;
   createdAt?: string;
 }

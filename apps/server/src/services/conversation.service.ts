@@ -130,7 +130,7 @@ export class ConversationService {
     };
   }
 
-  async getUserConversations(userId: string): Promise<IConversation[]> {
+  async getUserConversations(userId: string): Promise<any[]> {
     if (!userId) {
       throw new Error('userId is required');
     }
@@ -143,7 +143,39 @@ export class ConversationService {
       .populate('lastMessage.senderId', 'username displayName')
       .lean();
 
-    return conversations as unknown as IConversation[];
+    if (!conversations || conversations.length === 0) {
+      return [];
+    }
+
+    const convIds = conversations.map((c) => c._id);
+
+    // Calculate unread message count for each conversation
+    const unreadStats = await Message.aggregate([
+      {
+        $match: {
+          conversationId: { $in: convIds },
+          senderId: { $ne: new Types.ObjectId(userId) },
+          deliveryStatus: { $ne: 'read' },
+          isDeleted: { $ne: true },
+        },
+      },
+      {
+        $group: {
+          _id: '$conversationId',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const unreadMap = new Map<string, number>();
+    unreadStats.forEach((stat) => {
+      unreadMap.set(String(stat._id), stat.count);
+    });
+
+    return conversations.map((conv) => ({
+      ...conv,
+      unreadCount: unreadMap.get(String(conv._id)) || 0,
+    }));
   }
 
 }

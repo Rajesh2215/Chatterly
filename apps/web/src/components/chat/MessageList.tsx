@@ -121,7 +121,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 {peer.displayName.slice(0, 2).toUpperCase()}
               </div>
             )}
-            <span className={`status-indicator ${peer.status}`} />
+            {/* <span className={`status-indicator ${peer.status}`} /> */}
           </div>
 
           <div className="peer-info">

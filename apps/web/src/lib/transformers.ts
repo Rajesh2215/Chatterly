@@ -101,7 +101,7 @@ export function transformApiConversationToUi(
           status: 'sent',
         }
       : undefined,
-    unreadCount: 0,
+    unreadCount: apiConv.unreadCount || 0,
     messages: existingMessages,
     hasOlderMessages: false,
     nextCursor: null,
