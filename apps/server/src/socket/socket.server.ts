@@ -14,6 +14,7 @@ import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
 import { getSocketRedisAdapter } from '../config/redisAdapter.js';
 import { produceMessageEvent } from '../queue/messageStream.js';
+import { presenceService } from '../services/presence.service.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -34,8 +35,6 @@ async function getContactIds(userId: string): Promise<string[]> {
 
 export function createSocketServer(httpServer: HttpServer): SocketIOServer {
 
-  // Map: userId -> active socket count
-  const onlineUsers = new Map<string, number>();
 
 
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents, {}, SocketData>(
@@ -89,13 +88,15 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
     console.log(`🔌 ${socket.data.username} joined their room: ${userRoom}`);
 
     // Track active sockets for this user
-    const currentCount = onlineUsers.get(userId) || 0;
-    onlineUsers.set(userId, currentCount + 1);
+    // const currentCount = onlineUsers.get(userId) || 0;
+    // onlineUsers.set(userId, currentCount + 1);
+
+    const connectionCount = await presenceService.userConnected(userId);
 
     const contacts = await getContactIds(userId);
 
     // If first socket connection, broadcast: User is now ONLINE 🟢
-    if (currentCount === 0) {
+    if (connectionCount === 1) {
       contacts.forEach((contactId) => {
         io.to(`user:${contactId}`).emit('user_presence', {
           userId,
@@ -148,8 +149,8 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     }
 
-    // Send this socket the list of their contacts who are currently online
-    const onlineContacts = contacts.filter((id) => (onlineUsers.get(id) || 0) > 0);
+    // Send this socket the list of their contacts who are currently online (from Redis)
+    const onlineContacts = await presenceService.getOnlineContacts(contacts);
     socket.emit('initial_presence', onlineContacts);
 
     // Send a message 
@@ -230,9 +231,11 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
     socket.on('disconnect', async (reason) => {
       console.log(`🔌 Socket disconnected: ${socket.data.username} — ${reason}`);
 
-      const count = onlineUsers.get(userId) || 1;
-      if (count <= 1) {
-        onlineUsers.delete(userId);
+      // Atomically decrement connection count in Redis
+      const remaining = await presenceService.userDisconnected(userId);
+
+      // If 0, user closed all devices/tabs!
+      if (remaining <= 0) {
         const lastSeenAt = new Date();
 
         // 1. Save lastSeenAt in MongoDB
@@ -251,8 +254,6 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
             lastSeenAt: lastSeenAt.toISOString(),
           });
         });
-      } else {
-        onlineUsers.set(userId, count - 1);
       }
     });
 
