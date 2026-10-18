@@ -6,7 +6,9 @@ export interface ServerToClientEvents {
   'user_typing': (payload: TypingPayload) => void;
   'user_stop_typing': (payload: TypingPayload) => void;
   'error': (payload: { message: string }) => void;
-  'message_status': (payload: MessageStatusPayload) => void
+  'message_status': (payload: MessageStatusPayload) => void;
+  'user_presence': (payload: UserPresencePayload) => void;
+  'initial_presence': (onlineUserIds: string[]) => void;
 }
 
 export interface ClientToServerEvents {
@@ -41,4 +43,10 @@ export interface MessageStatusPayload {
   conversationId: string;
   senderId: string;   // The original sender who should receive this update
   status: 'delivered' | 'read';
+}
+
+export interface UserPresencePayload {
+  userId: string;
+  status: 'online' | 'offline';
+  lastSeenAt?: string;
 }

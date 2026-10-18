@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { getSocket, disconnectSocket, AppSocket } from '@/lib/socket';
-import { MessagePayload, MessageStatusPayload, TypingPayload } from '@/lib/socket.types';
+import { MessagePayload, MessageStatusPayload, TypingPayload, UserPresencePayload } from '@/lib/socket.types';
 
 interface UseSocketOptions {
   accessToken: string | null;
@@ -11,6 +11,8 @@ interface UseSocketOptions {
   onUserTyping: (payload: TypingPayload) => void;
   onUserStopTyping: (payload: TypingPayload) => void;
   onMessageStatus?: (payload: MessageStatusPayload) => void;
+  onUserPresence?: (payload: UserPresencePayload) => void;
+  onInitialPresence?: (onlineUserIds: string[]) => void;
 }
 
 export function useSocket({
@@ -18,7 +20,9 @@ export function useSocket({
   onNewMessage,
   onUserTyping,
   onUserStopTyping,
-  onMessageStatus
+  onMessageStatus,
+  onUserPresence,
+  onInitialPresence,
 }: UseSocketOptions) {
   const socketRef = useRef<AppSocket | null>(null);
 
@@ -63,14 +67,18 @@ export function useSocket({
     socket.on('user_typing', onUserTyping);
     socket.on('user_stop_typing', onUserStopTyping);
     if (onMessageStatus) socket.on('message_status', onMessageStatus);
+    if (onUserPresence) socket.on('user_presence', onUserPresence);
+    if (onInitialPresence) socket.on('initial_presence', onInitialPresence);
 
     return () => {
       socket.off('new_message', onNewMessage);
       socket.off('user_typing', onUserTyping);
       socket.off('user_stop_typing', onUserStopTyping);
       socket.off('message_status', onMessageStatus);
+      socket.off('user_presence', onUserPresence);
+      socket.off('initial_presence', onInitialPresence);
     };
-  }, [onNewMessage, onUserTyping, onUserStopTyping, onMessageStatus]);
+  }, [onNewMessage, onUserTyping, onUserStopTyping, onMessageStatus, onUserPresence, onInitialPresence]);
 
   // Expose actions
   const emitSendMessage = useCallback(

@@ -22,7 +22,7 @@ import { MessageComposer } from './MessageComposer';
 import { NewChatModal } from './NewChatModal';
 import { getOrCreateDirectConversation, SearchedUser } from '@/api/conversations';
 import { useSocket } from '@/hooks/useSocket';
-import { MessagePayload, MessageStatusPayload, TypingPayload } from '@/lib/socket.types';
+import { MessagePayload, MessageStatusPayload, TypingPayload, UserPresencePayload } from '@/lib/socket.types';
 import { disconnectSocket } from '@/lib/socket';
 
 interface ChatShellProps {
@@ -259,13 +259,48 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   }, []);
 
 
+  const handleInitialPresence = useCallback((onlineUserIds: string[]) => {
+    setConversations((prev) =>
+      prev.map((conv) => {
+        const isOnline = onlineUserIds.includes(conv.peer.id);
+        return {
+          ...conv,
+          peer: {
+            ...conv.peer,
+            status: isOnline ? 'online' : 'offline',
+          },
+        };
+      })
+    );
+  }, []);
+
+  const handleUserPresence = useCallback((payload: UserPresencePayload) => {
+    setConversations((prev) =>
+      prev.map((conv) => {
+        if (conv.peer.id !== payload.userId) return conv;
+        return {
+          ...conv,
+          peer: {
+            ...conv.peer,
+            status: payload.status,
+            lastSeen: payload.lastSeenAt
+              ? formatConversationTime(payload.lastSeenAt)
+              : conv.peer.lastSeen,
+          },
+        };
+      })
+    );
+  }, []);
+
   const { emitSendMessage, emitTypingStart, emitTypingStop, emitMessageStatus } = useSocket({
     accessToken: getAccessToken(),
     activeConversationId,
     onNewMessage: handleNewMessage,
     onUserTyping: handleUserTyping,
     onUserStopTyping: handleUserStopTyping,
-    onMessageStatus: handleMessageStatus
+    onMessageStatus: handleMessageStatus,
+    onUserPresence: handleUserPresence,
+    onInitialPresence: handleInitialPresence,
   });
 
 
@@ -318,10 +353,26 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         setConversations(uiConvs);
 
         if (uiConvs.length > 0) {
-          const defaultConvId = uiConvs[0].id;
+          const defaultConv = uiConvs[0];
+          const defaultConvId = defaultConv.id;
           setActiveConversationId(defaultConvId);
           await fetchMessagesForConversation(defaultConvId);
-        } else {
+
+          // 1. Reset unread count for the default open conversation
+          setConversations((prev) =>
+            prev.map((c) => (c.id === defaultConvId ? { ...c, unreadCount: 0 } : c))
+          );
+
+          // 2. Notify the sender that their messages in this conversation are now read
+          if (defaultConv.peer?.id) {
+            emitMessageStatus({
+              conversationId: defaultConvId,
+              senderId: defaultConv.peer.id,
+              status: 'read',
+            });
+          }
+        }
+        else {
           setActiveConversationId(null);
         }
       } catch (err: any) {
