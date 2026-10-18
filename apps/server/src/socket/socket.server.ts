@@ -12,6 +12,7 @@ import {
 } from './socket.types.js';
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
+import { getSocketRedisAdapter } from '../config/redisAdapter.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -45,6 +46,8 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
       },
     }
   );
+
+  io.adapter(getSocketRedisAdapter());
 
   // Auth Middleware 
   // Runs before every connection. Verifies the access token sent in the

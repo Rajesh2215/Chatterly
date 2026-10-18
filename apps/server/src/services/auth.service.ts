@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ulid } from 'ulid';
 import { User, IUser } from '../models/User.js';
-import { redis } from '../config/redis.js';
+import { redis } from '../config/redisAdapter.js';
 
 export interface UserPublicDto {
   id: string;

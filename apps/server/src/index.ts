@@ -4,7 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
-import { redis } from './config/redis.js';
+import { redis } from './config/redisAdapter.js';
 import { apiRouter } from './routes/index.js';
 import cookieParser from 'cookie-parser';
 import { createSocketServer } from './socket/socket.server.js';
