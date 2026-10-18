@@ -5,7 +5,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "dev:gateway": "PROCESS_ROLE=gateway tsx watch src/index.ts",
+    "dev:worker": "PROCESS_ROLE=worker tsx watch src/index.ts",
+    "start:gateway": "PROCESS_ROLE=gateway node dist/index.js",
+    "start:worker": "PROCESS_ROLE=worker node dist/index.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +23,7 @@
     "@types/ioredis": "^4.28.10",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.5",
+    "socket.io-client": "^4.8.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },

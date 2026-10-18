@@ -25,7 +25,7 @@ export async function produceMessageEvent(event: StreamMessageEvent): Promise<st
     "data",   // Field name
     JSON.stringify(event)
   );
-  console.log(`⚡ [Fast-Path] Stream XADD: "${event.content}" (id: ${event.messageId}) ➔ streamId: ${streamId}`);
+  // console.log(`⚡ [Fast-Path] Stream XADD: "${event.content}" (id: ${event.messageId}) ➔ streamId: ${streamId}`);
   return streamId as string;
 }
 
@@ -35,10 +35,10 @@ export async function initStreamGroup(): Promise<void> {
     // "$" means: New consumer group only consumes messages arriving after creation
     // "MKSTREAM" automatically creates the stream if it does not exist
     await redis.xgroup("CREATE", STREAM_KEY, CONSUMER_GROUP, "$", "MKSTREAM");
-    console.log("✅ Created Redis Stream consumer group:", CONSUMER_GROUP);
+    // console.log("✅ Created Redis Stream consumer group:", CONSUMER_GROUP);
   } catch (err: any) {
     if (!err.message?.includes("BUSYGROUP")) {
-      console.warn("⚠️ Redis Stream group notice:", err.message);
+      // console.warn("⚠️ Redis Stream group notice:", err.message);
     }
   }
 }
@@ -51,7 +51,7 @@ export async function startBatchPersistenceWorker(): Promise<void> {
   isWorkerRunning = true;
 
   await initStreamGroup();
-  console.log("🚀 High-Throughput Batch Persistence Worker running (%s)", CONSUMER_NAME);
+  // console.log("🚀 High-Throughput Batch Persistence Worker running (%s)", CONSUMER_NAME);
 
   const BATCH_SIZE = 50;
   const POLL_TIMEOUT_MS = 100;
@@ -110,11 +110,11 @@ export async function startBatchPersistenceWorker(): Promise<void> {
             createdAt: createdAtDate,
           });
         } catch (parseErr) {
-          console.error("Failed to parse stream entry:", parseErr);
+          // console.error("Failed to parse stream entry:", parseErr);
         }
       }
 
-      console.log(`📦 [Batch Worker] Processing batch of ${entryIds.length} stream entries for MongoDB bulk write...`);
+      // console.log(`📦 [Batch Worker] Processing batch of ${entryIds.length} stream entries for MongoDB bulk write...`);
 
       // Bulk write #1: Insert all messages into MongoDB in a single round-trip
       if (messagesToInsert.length > 0) {
@@ -122,7 +122,7 @@ export async function startBatchPersistenceWorker(): Promise<void> {
         // Ordering is NOT lost because our ULID primary keys enforce chronological order on query.
         await Message.insertMany(messagesToInsert, { ordered: false }).catch((err) => {
           if (err.code !== 11000) {
-            console.error("MongoDB batch insert error:", err);
+            // console.error("MongoDB batch insert error:", err);
           }
         });
 
@@ -141,7 +141,7 @@ export async function startBatchPersistenceWorker(): Promise<void> {
 
         if (bulkConvOps.length > 0) {
           await Conversation.bulkWrite(bulkConvOps, { ordered: false }).catch((err) => {
-            console.error("MongoDB bulkWrite conversation update error:", err);
+            // console.error("MongoDB bulkWrite conversation update error:", err);
           });
         }
       }
@@ -151,10 +151,10 @@ export async function startBatchPersistenceWorker(): Promise<void> {
       // Redis would keep them for retry on reboot (zero data loss!).
       if (entryIds.length > 0) {
         await redis.xack(STREAM_KEY, CONSUMER_GROUP, ...entryIds);
-        console.log(`✅ [Batch Worker] Successfully persisted to MongoDB & ACKed ${entryIds.length} stream entries`);
+        // console.log(`✅ [Batch Worker] Successfully persisted to MongoDB & ACKed ${entryIds.length} stream entries`);
       }
     } catch (err: any) {
-      console.error("❌ Persistence Worker loop error:", err.message);
+      // console.error("❌ Persistence Worker loop error:", err.message);
       // Small backoff to avoid hot spinning if Redis or MongoDB is temporarily unreachable
       await new Promise((res) => setTimeout(res, 500));
     }

@@ -12,7 +12,7 @@ import {
 } from './socket.types.js';
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
-import { getSocketRedisAdapter } from '../config/redisAdapter.js';
+import { getSocketRedisAdapter, redis } from '../config/redisAdapter.js';
 import { produceMessageEvent } from '../queue/messageStream.js';
 import { presenceService } from '../services/presence.service.js';
 import { unreadService } from '../services/unread.service.js';
@@ -33,10 +33,30 @@ async function getContactIds(userId: string): Promise<string[]> {
   return Array.from(contacts);
 }
 
+// Helper to get conversation participants with Redis caching
+async function getConversationParticipants(conversationId: string): Promise<string[]> {
+  const cacheKey = `conv:${conversationId}:participants`;
+
+  // 1. Try Redis Set first (0.05ms)
+  let participants = await redis.smembers(cacheKey);
+
+  // 2. Cold-Cache Fallback: Read MongoDB once and populate Redis
+  if (!participants || participants.length === 0) {
+    const conv = await Conversation.findById(conversationId).select('participants');
+    if (!conv) return [];
+
+    participants = conv.participants.map((p) => p.toString());
+
+    if (participants.length > 0) {
+      await redis.sadd(cacheKey, ...participants);
+      await redis.expire(cacheKey, 86400); // 24-hour TTL
+    }
+  }
+
+  return participants;
+}
 
 export function createSocketServer(httpServer: HttpServer): SocketIOServer {
-
-
 
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents, {}, SocketData>(
     httpServer,
@@ -186,10 +206,10 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
         });
 
         // 2. Fetch participants to route WebSocket packets
-        const conversation = await Conversation.findById(conversationId).select('participants');
-        if (!conversation) return;
 
-        conversation.participants.forEach((participantId) => {
+        const participants = await getConversationParticipants(conversationId);
+
+        participants.forEach((participantId) => {
           const pid = participantId.toString();
           io.to(`user:${pid}`).emit('new_message', payload);
 

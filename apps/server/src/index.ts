@@ -47,21 +47,32 @@ app.get('/health', async (req, res) => {
   });
 });
 
+const ROLE = process.env.PROCESS_ROLE || 'all'; // 'all' | 'gateway' | 'worker'
 
 async function bootstrap() {
   await connectDB();
 
-  // Start the high-throughput batch worker
-  startBatchPersistenceWorker();
+  // 1. WORKER ONLY (Headless - No HTTP/WebSockets)
+  if (ROLE === 'worker') {
+    console.log('👷 Running in WORKER mode (Persistence worker only)');
+    await startBatchPersistenceWorker();
+    return;
+  }
 
-  // Wrap Express app in a raw Node http.Server
-  // Socket.io attaches to the http server, NOT the express app directly
-
+  // 2. GATEWAY & API (Express + Socket.io)
   const httpServer = http.createServer(app);
   createSocketServer(httpServer);
+
   httpServer.listen(PORT, () => {
-    console.log(`🚀 Chatterly server running on http://localhost:${PORT}`);
-    console.log(`🔌 Socket.io ready`);
+    console.log(`🚀 Chatterly Gateway & API running on port ${PORT}`);
+    console.log(`🔌 Socket.io ready (${ROLE} mode)`);
   });
+
+  // 3. IF 'all', also run the worker in the background of this process
+  if (ROLE === 'all') {
+    console.log('📦 Running integrated persistence worker in-process');
+    await startBatchPersistenceWorker();
+  }
 }
+
 bootstrap();
