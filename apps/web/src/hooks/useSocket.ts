@@ -13,6 +13,7 @@ interface UseSocketOptions {
   onMessageStatus?: (payload: MessageStatusPayload) => void;
   onUserPresence?: (payload: UserPresencePayload) => void;
   onInitialPresence?: (onlineUserIds: string[]) => void;
+  onError?: (error: { message: string }) => void;
 }
 
 export function useSocket({
@@ -23,8 +24,12 @@ export function useSocket({
   onMessageStatus,
   onUserPresence,
   onInitialPresence,
+  onError
 }: UseSocketOptions) {
   const socketRef = useRef<AppSocket | null>(null);
+
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   // Connect when we have an access token
   useEffect(() => {
@@ -37,14 +42,18 @@ export function useSocket({
       console.log('🔌 Socket connected:', socket.id);
     };
 
+    const handleError = (err: { message: string }) => {
+      console.error('Socket error:', err.message);
+      onErrorRef.current?.(err);
+    };
+
+    socket.on('error', handleError);
+
+
     socket.on('connect', handleConnect);
 
     socket.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason);
-    });
-
-    socket.on('error', ({ message }) => {
-      console.error('Socket error:', message);
     });
 
     socket.connect();

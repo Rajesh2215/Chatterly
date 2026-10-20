@@ -11,6 +11,7 @@ interface MessageListProps {
   isLoadingOlder?: boolean;
   onBack?: () => void;
   typingUsers?: Record<string, string>; // { userId: username }
+  initialUnreadCount?: number;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -19,37 +20,85 @@ export const MessageList: React.FC<MessageListProps> = ({
   onLoadOlderMessages,
   isLoadingOlder = false,
   onBack,
-  typingUsers
+  typingUsers,
+  initialUnreadCount = 0,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const unreadDividerRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
-  const isInitialMountRef = useRef<boolean>(true);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const currentConvIdRef = useRef(conversation.id);
+
+  const [unreadSeparatorMessageId, setUnreadSeparatorMessageId] = useState<string | null>(null);
+  const [unreadCountForSession, setUnreadCountForSession] = useState<number>(0);
+  const hasInitializedScrollRef = useRef<string | null>(null);
 
   const typingList = Object.values(typingUsers ?? {});
   const isPeerTyping = typingList.length > 0;
 
-  // Reset scroll to bottom when switching conversation
+  // Reset conversation tracking when switching conversation
   useEffect(() => {
     if (currentConvIdRef.current !== conversation.id) {
       currentConvIdRef.current = conversation.id;
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-      }
+      setUnreadSeparatorMessageId(null);
+      setUnreadCountForSession(0);
+      hasInitializedScrollRef.current = null;
     }
   }, [conversation.id]);
 
-  // Auto-scroll to bottom on conversation change, new message, or when typing starts
+  // Initial scroll calculation: focus on the first unread message if any, otherwise bottom if all read
   useEffect(() => {
-    if (isInitialMountRef.current) {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    if (conversation.messages.length === 0) return;
+    if (hasInitializedScrollRef.current === conversation.id) return;
+
+    hasInitializedScrollRef.current = conversation.id;
+
+    // Check for unread messages only if there is an unread count for this conversation
+    let firstUnreadId: string | null = null;
+    const count = initialUnreadCount || 0;
+
+    if (count > 0) {
+      const peerMessages = conversation.messages.filter((m) => m.senderId !== currentUser.id);
+      if (peerMessages.length > 0) {
+        const targetIndex = Math.max(0, peerMessages.length - count);
+        firstUnreadId = peerMessages[targetIndex]?.id || null;
       }
-      isInitialMountRef.current = false;
-      return;
     }
+
+    if (firstUnreadId) {
+      setUnreadSeparatorMessageId(firstUnreadId);
+      setUnreadCountForSession(count);
+    } else {
+      // All messages are read: immediately focus right at the bottom on the last message
+      setUnreadSeparatorMessageId(null);
+      setUnreadCountForSession(0);
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+        } else if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        }
+      });
+    }
+  }, [conversation.id, conversation.messages, currentUser.id, initialUnreadCount]);
+
+  // Once unread separator element is mounted in DOM, smoothly scroll to it
+  useEffect(() => {
+    if (unreadSeparatorMessageId) {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (unreadDividerRef.current) {
+            unreadDividerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 50);
+      });
+    }
+  }, [unreadSeparatorMessageId]);
+
+  // Auto-scroll when new messages arrive or peer is typing (after conversation is initialized)
+  useEffect(() => {
+    if (hasInitializedScrollRef.current !== conversation.id) return;
 
     if (shouldAutoScroll) {
       requestAnimationFrame(() => {
@@ -221,13 +270,43 @@ export const MessageList: React.FC<MessageListProps> = ({
             No messages yet. Say hello to {peer.displayName}!
           </div>
         ) : (
-          conversation.messages.map((message: Message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              isSelf={message.senderId === currentUser.id}
-            />
-          ))
+          conversation.messages.map((message: Message) => {
+            const isFirstUnread = message.id === unreadSeparatorMessageId;
+
+            return (
+              <React.Fragment key={message.id}>
+                {isFirstUnread && (
+                  <div ref={unreadDividerRef} className="unread-separator-container">
+                    <div className="unread-separator-line" />
+                    <div className="unread-separator-badge">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="7 13 12 18 17 13" />
+                        <polyline points="7 6 12 11 17 6" />
+                      </svg>
+                      <span>
+                        {unreadCountForSession}{' '}
+                        {unreadCountForSession === 1 ? 'Unread Message' : 'Unread Messages'}
+                      </span>
+                    </div>
+                    <div className="unread-separator-line" />
+                  </div>
+                )}
+                <MessageBubble
+                  message={message}
+                  isSelf={message.senderId === currentUser.id}
+                />
+              </React.Fragment>
+            );
+          })
         )}
         {isPeerTyping && (
           <div className="message-row peer typing-row">

@@ -63,7 +63,9 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [socketError, setSocketError] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});   // { userId: username } — tracks who is currently typing
+  const [activeInitialUnreadCount, setActiveInitialUnreadCount] = useState<number>(0);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   // Presence Cache Ref: Prevents race condition between early WebSocket "initial_presence"
   // and slower HTTP REST "loadUserConversations", ensuring online green dots are never overwritten with "offline".
@@ -350,6 +352,13 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     );
   }, []);
 
+  const handleSocketError = useCallback((err: { message: string }) => {
+    setSocketError(err.message);
+    setTimeout(() => {
+      setSocketError((current) => (current === err.message ? null : current));
+    }, 4000);
+  }, []);
+
   const { emitSendMessage, emitTypingStart, emitTypingStop, emitMessageStatus } = useSocket({
     accessToken: getAccessToken(),
     activeConversationId,
@@ -359,6 +368,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     onMessageStatus: handleMessageStatus,
     onUserPresence: handleUserPresence,
     onInitialPresence: handleInitialPresence,
+    onError: handleSocketError,
   });
 
 
@@ -380,9 +390,17 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         setConversations((prev) =>
           prev.map((conv) => {
             if (conv.id === conversationId) {
+              const isActive = activeConversationIdRef.current === conversationId;
+              const normalizedMessages = isActive
+                ? uiMessages.map((m) =>
+                    m.senderId !== currentUserId && m.status !== 'read'
+                      ? { ...m, status: 'read' as const }
+                      : m
+                  )
+                : uiMessages;
               return {
                 ...conv,
-                messages: uiMessages,
+                messages: normalizedMessages,
                 hasOlderMessages: result.hasMore,
                 nextCursor: result.nextCursor,
               };
@@ -459,18 +477,30 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
 
+    // Capture initial unread count before marking as read
+    const existing = conversations.find((c) => c.id === id);
+    const count = existing?.unreadCount || 0;
+    setActiveInitialUnreadCount(count);
+
     // Clear typing users and timeouts on switching conversation
     Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
     typingTimeoutsRef.current = {};
     setTypingUsers({});
 
-    // Reset unread count for the selected conversation
+    // Reset unread count AND mark all peer messages as 'read' in local state
     setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const nextMessages = c.messages.map((m) =>
+          m.senderId !== currentUserId && m.status !== 'read'
+            ? { ...m, status: 'read' as const }
+            : m
+        );
+        return { ...c, unreadCount: 0, messages: nextMessages };
+      })
     );
 
     // If conversation messages are not loaded yet, fetch from server
-    const existing = conversations.find((c) => c.id === id);
     if (!existing || existing.messages.length === 0) {
       await fetchMessagesForConversation(id);
     }
@@ -632,6 +662,16 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
         {/* Right Column (Main Chat Viewport) */}
         {activeConversation ? (
           <main className="chat-viewport" style={{ display: 'flex' }}>
+            {socketError && (
+              <div className="rate-limit-banner">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span>{socketError}</span>
+              </div>
+            )}
             <MessageList
               conversation={activeConversation}
               currentUser={currentUser}
@@ -639,6 +679,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
               isLoadingOlder={isLoadingOlder}
               onBack={handleBackToConversations}
               typingUsers={typingUsers}
+              initialUnreadCount={activeInitialUnreadCount}
             />
             <MessageComposer
               onSendMessage={handleSendMessage}
