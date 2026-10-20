@@ -64,9 +64,17 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});   // { userId: username } — tracks who is currently typing
+  const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   // Presence Cache Ref: Prevents race condition between early WebSocket "initial_presence"
   // and slower HTTP REST "loadUserConversations", ensuring online green dots are never overwritten with "offline".
   const onlineUsersSetRef = useRef<Set<string>>(new Set());
+
+  // Cleanup typing timeouts on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
+    };
+  }, []);
 
   // Restore auth session on mount (silent refresh via httpOnly cookie)
   useEffect(() => {
@@ -134,6 +142,21 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
       const isActiveConversation = activeConversationIdRef.current === msg.conversationId;
       const isFromSelf = msg.senderId === currentUserId;
+
+      // Clear typing indicator for this sender immediately since they have sent a message
+      if (!isFromSelf) {
+        if (typingTimeoutsRef.current[msg.senderId]) {
+          clearTimeout(typingTimeoutsRef.current[msg.senderId]);
+          delete typingTimeoutsRef.current[msg.senderId];
+        }
+        setTypingUsers((prev) => {
+          if (!prev[msg.senderId]) return prev;
+          const next = { ...prev };
+          delete next[msg.senderId];
+          return next;
+        });
+      }
+
       if (!isFromSelf) {
         // 1. Tell sender: "Message was delivered to my device ✓✓"
         emitMessageStatus({
@@ -223,11 +246,30 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
     // Only display typing indicator if it belongs to the active conversation
     if (activeConversationIdRef.current === payload.conversationId) {
       setTypingUsers((prev) => ({ ...prev, [payload.userId]: payload.username }));
+
+      // Clear existing safety timeout for this user
+      if (typingTimeoutsRef.current[payload.userId]) {
+        clearTimeout(typingTimeoutsRef.current[payload.userId]);
+      }
+      // Auto-clear indicator after 4 seconds of inactivity if stop event was dropped
+      typingTimeoutsRef.current[payload.userId] = setTimeout(() => {
+        setTypingUsers((prev) => {
+          if (!prev[payload.userId]) return prev;
+          const next = { ...prev };
+          delete next[payload.userId];
+          return next;
+        });
+      }, 4000);
     }
   }, [currentUserId]);
 
   const handleUserStopTyping = useCallback((payload: TypingPayload) => {
+    if (typingTimeoutsRef.current[payload.userId]) {
+      clearTimeout(typingTimeoutsRef.current[payload.userId]);
+      delete typingTimeoutsRef.current[payload.userId];
+    }
     setTypingUsers((prev) => {
+      if (!prev[payload.userId]) return prev;
       const next = { ...prev };
       delete next[payload.userId];
       return next;
@@ -416,6 +458,11 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
   // Handle selecting a conversation
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
+
+    // Clear typing users and timeouts on switching conversation
+    Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
+    typingTimeoutsRef.current = {};
+    setTypingUsers({});
 
     // Reset unread count for the selected conversation
     setConversations((prev) =>

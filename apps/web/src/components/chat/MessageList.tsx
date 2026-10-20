@@ -22,10 +22,14 @@ export const MessageList: React.FC<MessageListProps> = ({
   typingUsers
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
   const isInitialMountRef = useRef<boolean>(true);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const currentConvIdRef = useRef(conversation.id);
+
+  const typingList = Object.values(typingUsers ?? {});
+  const isPeerTyping = typingList.length > 0;
 
   // Reset scroll to bottom when switching conversation
   useEffect(() => {
@@ -37,7 +41,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     }
   }, [conversation.id]);
 
-  // Auto-scroll to bottom on conversation change or new message
+  // Auto-scroll to bottom on conversation change, new message, or when typing starts
   useEffect(() => {
     if (isInitialMountRef.current) {
       if (scrollContainerRef.current) {
@@ -47,13 +51,19 @@ export const MessageList: React.FC<MessageListProps> = ({
       return;
     }
 
-    if (shouldAutoScroll && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({
-        top: scrollContainerRef.current.scrollHeight,
-        behavior: 'smooth',
+    if (shouldAutoScroll) {
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } else if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({
+            top: scrollContainerRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
       });
     }
-  }, [conversation.messages.length, conversation.id, shouldAutoScroll]);
+  }, [conversation.messages.length, conversation.id, isPeerTyping, shouldAutoScroll]);
 
   // Adjust scroll position after prepending older messages so user view doesn't jump
   useLayoutEffect(() => {
@@ -127,14 +137,23 @@ export const MessageList: React.FC<MessageListProps> = ({
           <div className="peer-info">
             <span className="peer-info-name">{peer.displayName}</span>
             <div className="peer-info-status">
-              <span className={`status-dot-mini ${peer.status === 'online' ? 'online' : ''}`} />
-              <span>
-                {peer.status === 'online'
-                  ? 'online'
-                  : peer.lastSeen
-                    ? `last seen ${peer.lastSeen}`
-                    : 'offline'}
-              </span>
+              {isPeerTyping ? (
+                <>
+                  <span className="status-dot-mini online status-typing-pulse" />
+                  <span className="status-typing-text">typing...</span>
+                </>
+              ) : (
+                <>
+                  <span className={`status-dot-mini ${peer.status === 'online' ? 'online' : ''}`} />
+                  <span>
+                    {peer.status === 'online'
+                      ? 'online'
+                      : peer.lastSeen
+                        ? `last seen ${peer.lastSeen}`
+                        : 'offline'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -210,16 +229,23 @@ export const MessageList: React.FC<MessageListProps> = ({
             />
           ))
         )}
-        {Object.values(typingUsers ?? {}).length > 0 && (
-          <div className="typing-indicator">
-            <span className="typing-dots">
-              <span /><span /><span />
-            </span>
-            <span className="typing-label">
-              {Object.values(typingUsers!).join(', ')} {Object.values(typingUsers!).length === 1 ? 'is' : 'are'} typing...
-            </span>
+        {isPeerTyping && (
+          <div className="message-row peer typing-row">
+            <div className="typing-indicator-bubble">
+              <div className="typing-dots">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
+              <span className="typing-label">
+                {typingList.join(', ')} {typingList.length === 1 ? 'is' : 'are'} typing...
+              </span>
+            </div>
           </div>
         )}
+
+        {/* Scroll anchor to ensure bottom-most item and padding are never clipped */}
+        <div ref={messagesEndRef} className="messages-scroll-anchor" />
 
       </div>
     </div>
