@@ -238,12 +238,13 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
 
     // Typing indicators 
     // Broadcast to everyone EXCEPT the sender
+
     socket.on('typing_start', async (conversationId: string) => {
-      const conversation = await Conversation.findById(conversationId)
-      if (!conversation) return
 
-      conversation.participants.forEach((participantId) => {
-        socket.to(`user:${participantId}`).emit('user_typing', {
+      const participants = await getConversationParticipants(conversationId);
+      // ✍️ Typing start — shedding packets if recipient is lagging
+      participants.forEach((participantId) => {
+        socket.to(`user:${participantId}`).volatile.emit('user_typing', {
           conversationId,
           userId: socket.data.userId,
           username: socket.data.username,
@@ -252,21 +253,45 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
 
     });
 
+    // ✍️ Typing stop — shedding packets if recipient is lagging
     socket.on('typing_stop', async (conversationId: string) => {
-      const conversation = await Conversation.findById(conversationId)
-      if (!conversation) return
+      const participants = await getConversationParticipants(conversationId);
 
-      conversation.participants.forEach((participantId) => {
-        socket.to(`user:${participantId}`).emit('user_stop_typing', {
+      participants.forEach((participantId) => {
+        socket.to(`user:${participantId}`).volatile.emit('user_stop_typing', {
           conversationId,
           userId: socket.data.userId,
           username: socket.data.username,
         });
       })
     });
+
+    // 🛡️ Slow Consumer Protection: Disconnect zombie/frozen sockets before OOM crash
+    // 64KB threshold for testing (in production: 1MB = 1024 * 1024)
+    const MAX_BUFFERED_BYTES = 1024 * 1024; // 1 MB
+    const MAX_QUEUE_SIZE = 100;             // Max 100 queued packets in V8 heap
+
+    const backpressureInterval = setInterval(() => {
+      // 1. Check raw TCP socket buffer in 'ws'
+      const rawWs = (socket.conn as any).transport?.socket;
+      const tcpBufferedBytes = rawWs?.bufferedAmount || 0;
+
+      // 2. Check Engine.io packet queue
+      const engineQueueLen = (socket.conn as any).writeBuffer?.length || 0;
+
+      // If client has more than 64KB of unsent data accumulated in RAM:
+      if (tcpBufferedBytes > MAX_BUFFERED_BYTES || engineQueueLen > MAX_QUEUE_SIZE) {
+        console.warn(
+          `⚠️ [Backpressure] Client ${socket.data.username} (${socket.id}) is severely lagging (${tcpBufferedBytes} bytes buffered, ${engineQueueLen} queued). Disconnecting to protect server memory.`
+        );
+        socket.disconnect(true);
+      }
+    }, 5000);
 
     // Disconnect 
     socket.on('disconnect', async (reason) => {
+
+      clearInterval(backpressureInterval);
       console.log(`🔌 Socket disconnected: ${socket.data.username} — ${reason}`);
 
       // Atomically decrement connection count in Redis
