@@ -3,9 +3,30 @@ import { Message } from "../models/Message.js";
 import { Conversation } from "../models/Conversation.js";
 import { Types } from "mongoose";
 
-export const STREAM_KEY = "stream:chat:messages";
+export const STREAM_KEY = "chatterly:stream:chat:messages";
 export const CONSUMER_GROUP = "group:persistence";
 const CONSUMER_NAME = `worker:${process.pid}`;
+
+const DLQ_STREAM_KEY = `${STREAM_KEY}:dlq`;
+const MAX_RETRIES = 3;
+
+// If JSON.parse or message validation throws:
+async function handlePoisonPill(entryId: string, rawData: string, error: any) {
+  console.error(`🚨 [DLQ] Moving poison pill ${entryId} to DLQ:`, error.message);
+
+  // 1. Write to DLQ stream
+  await redis.xadd(
+    DLQ_STREAM_KEY,
+    '*',
+    'originalId', entryId,
+    'rawData', rawData,
+    'error', error.message || 'Unknown processing error',
+    'failedAt', new Date().toISOString()
+  );
+
+  // 2. ACK from main stream to unblock consumer group
+  await redis.xack(STREAM_KEY, CONSUMER_GROUP, entryId);
+}
 
 export interface StreamMessageEvent {
   messageId: string;
@@ -85,11 +106,16 @@ export async function startBatchPersistenceWorker(): Promise<void> {
       const lastMessageUpdates = new Map<string, any>();
 
       for (const [entryId, fields] of streamEntries) {
-        entryIds.push(entryId);
-        // fields format: ["data", "{...}"]
         const rawData = fields[1];
+
         try {
           const item: StreamMessageEvent = JSON.parse(rawData);
+
+          // 🛡️ Data Integrity Check: Guard against corrupt/missing fields
+          if (!item.messageId || !item.conversationId || !item.senderId) {
+            throw new Error(`Corrupt payload: Missing required message fields in ${entryId}`);
+          }
+
           const createdAtDate = new Date(item.createdAt);
 
           messagesToInsert.push({
@@ -97,7 +123,7 @@ export async function startBatchPersistenceWorker(): Promise<void> {
             conversationId: new Types.ObjectId(item.conversationId),
             senderId: new Types.ObjectId(item.senderId),
             content: item.content,
-            deliveryStatus: item.deliveryStatus || "sent",
+            deliveryStatus: item.deliveryStatus || 'sent',
             createdAt: createdAtDate,
             updatedAt: createdAtDate,
           });
@@ -109,8 +135,13 @@ export async function startBatchPersistenceWorker(): Promise<void> {
             content: item.content,
             createdAt: createdAtDate,
           });
-        } catch (parseErr) {
-          // console.error("Failed to parse stream entry:", parseErr);
+
+          // Successfully prepared for Mongo, mark for XACK
+          entryIds.push(entryId);
+        } catch (parseErr: any) {
+          // ☠️ POISON PILL DETECTED!
+          // Divert to DLQ and immediately XACK from main stream so it unblocks the batch!
+          await handlePoisonPill(entryId, rawData, parseErr);
         }
       }
 
@@ -154,7 +185,7 @@ export async function startBatchPersistenceWorker(): Promise<void> {
         // console.log(`✅ [Batch Worker] Successfully persisted to MongoDB & ACKed ${entryIds.length} stream entries`);
       }
     } catch (err: any) {
-      // console.error("❌ Persistence Worker loop error:", err.message);
+      console.error("❌ Persistence Worker loop error:", err);
       // Small backoff to avoid hot spinning if Redis or MongoDB is temporarily unreachable
       await new Promise((res) => setTimeout(res, 500));
     }
