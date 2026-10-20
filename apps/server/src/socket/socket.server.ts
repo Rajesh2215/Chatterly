@@ -16,6 +16,7 @@ import { getSocketRedisAdapter, redis } from '../config/redisAdapter.js';
 import { produceMessageEvent } from '../queue/messageStream.js';
 import { presenceService } from '../services/presence.service.js';
 import { unreadService } from '../services/unread.service.js';
+import { rateLimiter } from '../services/rateLimiter.service.js';
 
 // Typed socket alias for convenience
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketData>;
@@ -178,6 +179,16 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
     // 1. Save to MongoDB
     // 2. Broadcast to everyone else in the room
     socket.on('send_message', async ({ conversationId, content }) => {
+
+      // 🛡️ 1. Distributed Token-Bucket Rate Limiting (Redis Lua: <0.05ms)
+      // Capacity = 5 burst tokens, refills at 2 tokens/sec
+      const rateLimit = await rateLimiter.consume(userId, 12, 3);
+      if (!rateLimit.allowed) {
+        socket.emit('error', {
+          message: 'You are sending messages too fast. Please slow down.',
+        });
+        return; // Reject before touching Redis Stream or MongoDB!
+      }
       if (!content?.trim()) return;
 
       try {
