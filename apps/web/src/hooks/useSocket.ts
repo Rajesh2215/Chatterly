@@ -91,8 +91,8 @@ export function useSocket({
 
   // Expose actions
   const emitSendMessage = useCallback(
-    (conversationId: string, content: string) => {
-      socketRef.current?.emit('send_message', { conversationId, content });
+    (conversationId: string, content: string, clientMessageId?: string) => {
+      socketRef.current?.emit('send_message', { conversationId, content, clientMessageId });
     },
     []
   );

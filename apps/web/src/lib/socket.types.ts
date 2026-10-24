@@ -25,11 +25,13 @@ export interface MessagePayload {
   content: string;
   deliveryStatus: 'sent' | 'delivered' | 'read';
   createdAt: string;
+  clientMessageId?: string
 }
 
 export interface SendMessagePayload {
   conversationId: string;
   content: string;
+  clientMessageId?: string
 }
 
 export interface TypingPayload {

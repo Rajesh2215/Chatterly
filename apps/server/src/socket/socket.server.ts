@@ -195,7 +195,7 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
     // Send a message 
     // 1. Save to MongoDB
     // 2. Broadcast to everyone else in the room
-    socket.on('send_message', async ({ conversationId, content }) => {
+    socket.on('send_message', async ({ conversationId, content, clientMessageId }) => {
 
       // 🛡️ 1. Distributed Token-Bucket Rate Limiting (Redis Lua: <0.05ms)
       // Capacity = 5 burst tokens, refills at 2 tokens/sec
@@ -205,6 +205,15 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
           message: 'You are sending messages too fast. Please slow down.',
         });
         return; // Reject before touching Redis Stream or MongoDB!
+      }
+
+      if (clientMessageId) {
+        const dedupekey = `msg:dedupe:${userId}:${clientMessageId}`
+        const isNew = await redis.set(dedupekey, '1', 'EX', 120, 'NX')
+        if (!isNew) {
+          console.log(`🔁 [Idempotency] Duplicate message detected (${clientMessageId}). Dropping duplicate!`);
+          return; // Drop! Zero Redis stream writes, zero MongoDB writes, zero duplicate chat bubbles!
+        }
       }
       if (!content?.trim()) return;
 
@@ -221,6 +230,7 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
           content: content.trim(),
           deliveryStatus: 'sent',
           createdAt: nowIso,
+          clientMessageId,
         };
 
         // 1. FAST-PATH: Push to Redis Stream in <0.2ms (No disk blocking!)

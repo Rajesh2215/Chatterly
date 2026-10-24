@@ -204,13 +204,13 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
           const exists = conv.messages.some((m) => m.id === msg._id);
           if (exists) return conv;
 
-          // If sender has a pending optimistic message matching content, replace it
+          // Reconcile optimistic message deterministically using clientMessageId
           const hasPending = conv.messages.some(
-            (m) => m.status === 'pending' && m.content === msg.content
+            (m) => m.status === 'pending' && (m.id === msg.clientMessageId || m.content === msg.content)
           );
           const nextMessages = hasPending
             ? conv.messages.map((m) =>
-              m.status === 'pending' && m.content === msg.content ? uiMsg : m
+              m.status === 'pending' && (m.id === msg.clientMessageId || m.content === msg.content) ? uiMsg : m
             )
             : [...conv.messages, uiMsg];
 
@@ -393,10 +393,10 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
               const isActive = activeConversationIdRef.current === conversationId;
               const normalizedMessages = isActive
                 ? uiMessages.map((m) =>
-                    m.senderId !== currentUserId && m.status !== 'read'
-                      ? { ...m, status: 'read' as const }
-                      : m
-                  )
+                  m.senderId !== currentUserId && m.status !== 'read'
+                    ? { ...m, status: 'read' as const }
+                    : m
+                )
                 : uiMessages;
               return {
                 ...conv,
@@ -584,7 +584,7 @@ export const ChatShell: React.FC<ChatShellProps> = ({ initialTheme = 'dark' }) =
 
       // 3. Send via real-time WebSocket
       try {
-        emitSendMessage(activeConversationId, text);
+        emitSendMessage(activeConversationId, text, tempId);
       } catch (err: any) {
         console.error('Failed to emit message via socket:', err);
       }
