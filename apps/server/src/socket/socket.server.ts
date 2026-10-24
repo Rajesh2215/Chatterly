@@ -83,6 +83,10 @@ export function createSocketServer(httpServer: HttpServer): SocketIOServer {
         origin: process.env.CLIENT_URL || 'http://localhost:3000',
         credentials: true, // allow cookies
       },
+      // 🧟 Zombie Socket & Half-Open TCP Pruning Configuration:
+      pingInterval: 10000,    // 10s: Ping frequency (Low battery/CPU overhead)
+      pingTimeout: 5000,      // 5s: Max wait for pong before cutting the connection
+      maxHttpBufferSize: 1e6, // 1MB: Protects handshake buffer from memory injection
     }
   );
 
