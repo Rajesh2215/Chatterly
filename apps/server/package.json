@@ -9,7 +9,8 @@
     "dev:gateway": "PROCESS_ROLE=gateway tsx watch src/index.ts",
     "dev:worker": "PROCESS_ROLE=worker tsx watch src/index.ts",
     "start:gateway": "PROCESS_ROLE=gateway node dist/index.js",
-    "start:worker": "PROCESS_ROLE=worker node dist/index.js"
+    "start:worker": "PROCESS_ROLE=worker node dist/index.js",
+    "bench": "tsx scripts/load-test.ts"
   },
   "keywords": [],
   "author": "",
