@@ -23,15 +23,32 @@ type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, {}, SocketDa
 
 // Helper function to find all unique contact IDs for a user
 async function getContactIds(userId: string): Promise<string[]> {
-  const conversations = await Conversation.find({ participants: userId }).select('participants');
-  const contacts = new Set<string>();
-  conversations.forEach((c) => {
-    c.participants.forEach((p) => {
-      const pid = p.toString();
-      if (pid !== userId) contacts.add(pid);
+
+  const cacheKey = `contacts:${userId}`
+
+  let contacts = await redis.smembers(cacheKey)
+
+  if (!contacts || contacts.length === 0) {
+
+    const conversations = await Conversation.find({ participants: userId }).select('participants');
+    const contactSet = new Set<string>();
+    conversations.forEach((c) => {
+      c.participants.forEach((p) => {
+        const pid = p.toString();
+        if (pid !== userId) contactSet.add(pid);
+      });
     });
-  });
-  return Array.from(contacts);
+
+    contacts = Array.from(contactSet);
+
+    if (contacts.length > 0) {
+      await redis.sadd(cacheKey, ...contacts);
+      await redis.expire(cacheKey, 3600); // 1-hour TTL
+    }
+
+  }
+
+  return contacts
 }
 
 // Helper to get conversation participants with Redis caching
